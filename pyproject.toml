@@ -70,3 +70,8 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 flygym = ["assets/**"]
+
+[tool.uv.workspace]
+members = [
+    "example",
+]
