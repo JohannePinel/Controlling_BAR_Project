@@ -15,11 +15,15 @@ class Controller:
                 
                 
         self.vision_frames = []  # frames lisibles pour affichage
+        self.step_count = 0
 
 
 
 
     def step(self, sim: MiniprojectSimulation):
+
+        self.step_count += 1
+
         # implement your control algorithm here
         olfaction = sim.get_olfaction(sim.fly.name)
 
@@ -38,33 +42,47 @@ class Controller:
 
 
         drives = odor_to_drives(self.odor_smooth)
+
+        #print(f"Smoothed Odor: {self.odor_smooth}, Drives: {drives}")  # for debugging purposes
                 
         ########################## vision obstacle avoidance #################
-        ommatidia = sim.get_ommatidia_readouts(sim.fly.name)
-        im = np.concatenate([
-            sim.fly.retina.hex_pxls_to_human_readable(eye.max(-1), color_8bit=True)
-            for eye in ommatidia
-        ], axis=1)
-        self.vision_frames.append(im)
-        left_intensity = ommatidia[0].mean()
-        right_intensity = ommatidia[1].mean()
+        self.ommatidia = sim.get_ommatidia_readouts(sim.fly.name)
 
-        obstacle_left = 1 - left_intensity 
-        obstacle_right = 1 - right_intensity
+        self.left_intensity = self.ommatidia[0].mean()
+        self.right_intensity = self.ommatidia[1].mean()
 
-        obstacle_threshold = 0.5    # à tester
-        avoidance_strength = 1.5    # à tester
+        if self.step_count % 100 == 0:
+            im = np.concatenate([
+                sim.fly.retina.hex_pxls_to_human_readable(eye.max(-1), color_8bit=True)
+                for eye in self.ommatidia
+            ], axis=1)
+            self.vision_frames.append(im)
+            
 
-        if obstacle_left > obstacle_threshold or obstacle_right > obstacle_threshold:
+
+        obstacle_left = 1 - self.left_intensity 
+        obstacle_right = 1 - self.right_intensity
+        obstacle_max = max(obstacle_left, obstacle_right)
+
+
+        obstacle_threshold = 0.2    # à tester
+
+        if obstacle_max > obstacle_threshold:
+
             if obstacle_left > obstacle_right:
-                drives[1] += avoidance_strength
+                drives[0] -= 0.3 # tourner à droite
             else:
-                drives[0] += avoidance_strength
+                drives[1] -= 0.3  # tourner à gauche
+        
+
 
         ###############################################################################
 
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
+    
+
+
 
 # Fonction odeur inspirée de la fontion du lab 4
 def odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80): 
@@ -97,3 +115,4 @@ def odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80):
     side = int(bias_norm > 0)
     drives[side] -= np.abs(bias_norm) * 0.8
     return drives
+

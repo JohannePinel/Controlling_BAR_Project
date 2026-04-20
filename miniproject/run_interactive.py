@@ -40,6 +40,29 @@ def parse_args():
     )
     return parser.parse_args()
 
+# test joh
+
+def render_ommatidia(sim):
+    """Convert ommatidia readouts to a displayable RGB image."""
+    ommatidia = sim.get_ommatidia_readouts(sim.fly.name)
+    
+    # Convertir les deux yeux en images lisibles
+    left_eye = sim.fly.retina.hex_pxls_to_human_readable(
+        ommatidia[1].max(-1), color_8bit=True  # œil gauche
+    )
+    right_eye = sim.fly.retina.hex_pxls_to_human_readable(
+        ommatidia[0].max(-1), color_8bit=True  # œil droit
+    )
+    
+    # Concat horizontalement : gauche | droite
+    vision_img = np.concatenate([left_eye, right_eye], axis=1)
+    
+    # Convertir grayscale → RGB (nécessaire pour smoothscale)
+    if vision_img.ndim == 2:  # Si grayscale
+        vision_img = np.stack([vision_img] * 3, axis=-1)
+    
+    return vision_img
+
 
 def main():
     args = parse_args()
