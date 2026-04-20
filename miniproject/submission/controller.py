@@ -14,7 +14,9 @@ class Controller:
         self.alpha = 0.1  # smoothing factor for the low-pass filter
 
         ################################### code estelle ##################################
-
+        self.search_step = 0
+        self.SPIRAL_SPEED = 0.00005  # tuned, how fast the spiral expands
+        '''
         # Searching for odor source (8-figure) inspired from week 3
         turning_speed = 0.5  
         n_steps_full_turn = round(2 * np.pi / np.abs(turning_speed) / sim.timestep)
@@ -25,7 +27,7 @@ class Controller:
             np.tile(turn_left, (n_steps_full_turn, 1)),
         ])
         self.search_step = 0  # current position in figure-8
-
+        '''
         # State machine
         self.state = "SEARCH"  # start searching until odor is found
         self.confirm_counter = 0
@@ -53,9 +55,9 @@ class Controller:
                 
         ###############################################################################
         ################################### code estelle ##################################
-
-        odor_strength = self.odor_smooth[:, 0].mean()
-
+        # TEMPORARY TESTA
+        #odor_strength = self.odor_smooth[:, 0].mean()
+        odor_strength = 0.0
         # State transitions
         if self.state == "FOLLOW":
             if odor_strength < 1e-7:  # lost the signal
@@ -77,9 +79,13 @@ class Controller:
             drives = _odor_to_drives(self.odor_smooth)
         else:  # SEARCH
             #print('searching moode')
-            drives = self.search_pattern[self.search_step % len(self.search_pattern)]
+            #drives = self.search_pattern[self.search_step % len(self.search_pattern)]
+            t = self.search_step
+            # start nearly straight, gradually increase turn bias
+            bias = max(1 - (t/5) * self.SPIRAL_SPEED, 0.1)  # decrease from 0.8 to 0.1
+            drives = np.array([1.0 + bias, 1.0 - bias])
             self.search_step += 1
-
+        
         ###############################################################################
        
         joint_angles, adhesion = self.turning_controller.step(drives)
