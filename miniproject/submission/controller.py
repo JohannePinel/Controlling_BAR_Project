@@ -13,17 +13,35 @@ class Controller:
         self.odor_smooth = None
         self.alpha = 0.1  # smoothing factor for the low-pass filter
 
+        ################################### code estelle ##################################
+
+        # Searching for odor source (8-figure) inspired from week 3
+        turning_speed = 0.5  
+        n_steps_full_turn = round(2 * np.pi / np.abs(turning_speed) / sim.timestep)
+        turn_right = np.array([1.2, 0.2])
+        turn_left = np.array([0.2, 1.2])
+        self.search_pattern = np.concatenate([
+            np.tile(turn_right, (n_steps_full_turn, 1)),
+            np.tile(turn_left, (n_steps_full_turn, 1)),
+        ])
+        self.search_step = 0  # current position in figure-8
+
+        # State machine
+        self.state = "SEARCH"  # start searching until odor is found
+        self.confirm_counter = 0
+        #self.CONFIRM_THRESHOLD = 3  # steps of signal needed before switching to FOLLOW
+        ###############################################################################
+
+
     def step(self, sim: MiniprojectSimulation):
         # implement your control algorithm here
         olfaction = sim.get_olfaction(sim.fly.name)
-
+       
         #print(f"Olfaction: {olfaction}")  # for debugging purposes
         # get other observations as needed
         drives = np.array([2.0, 2.0])  # replace with your control logic
         
         ################################### test joh ##################################
-
-
 
         if self.odor_smooth is None:
             self.odor_smooth = olfaction
@@ -31,12 +49,39 @@ class Controller:
             self.odor_smooth = (1 - self.alpha) * self.odor_smooth + self.alpha * olfaction
 
 
-        drives = _odor_to_drives(self.odor_smooth)
-                
-
         #drives = _odor_to_drives(self.odor_smooth)
+                
         ###############################################################################
+        ################################### code estelle ##################################
 
+        odor_strength = self.odor_smooth[:, 0].mean()
+
+        # State transitions
+        if self.state == "FOLLOW":
+            if odor_strength < 1e-7:  # lost the signal
+                self.state = "SEARCH"
+                self.confirm_counter = 0
+                print('lost the smell')
+                # don't reset search_step — continue figure-8 where we left off
+        elif self.state == "SEARCH":
+            if odor_strength > 1e-7:
+                self.confirm_counter += 1
+                self.state = "FOLLOW"
+                print('found the smell')
+            else:
+                self.confirm_counter = 0  # reset if signal disappears again
+        
+        # Compute drives based on state
+        if self.state == "FOLLOW":
+            #print('following mode')
+            drives = _odor_to_drives(self.odor_smooth)
+        else:  # SEARCH
+            #print('searching moode')
+            drives = self.search_pattern[self.search_step % len(self.search_pattern)]
+            self.search_step += 1
+
+        ###############################################################################
+       
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
 
