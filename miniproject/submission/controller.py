@@ -29,6 +29,8 @@ class Controller:
         
         ################################### test joh ##################################
 
+
+        ########################## odor tracking #########################
         if self.odor_smooth is None:
             self.odor_smooth = olfaction
         else:
@@ -37,7 +39,7 @@ class Controller:
 
         drives = odor_to_drives(self.odor_smooth)
                 
-
+        ########################## vision obstacle avoidance #################
         ommatidia = sim.get_ommatidia_readouts(sim.fly.name)
         im = np.concatenate([
             sim.fly.retina.hex_pxls_to_human_readable(eye.max(-1), color_8bit=True)
@@ -50,8 +52,8 @@ class Controller:
         obstacle_left = 1 - left_intensity 
         obstacle_right = 1 - right_intensity
 
-        obstacle_threshold = 0.5
-        avoidance_strength = 1.5  # à ajuster
+        obstacle_threshold = 0.5    # à tester
+        avoidance_strength = 1.5    # à tester
 
         if obstacle_left > obstacle_threshold or obstacle_right > obstacle_threshold:
             if obstacle_left > obstacle_right:
@@ -64,7 +66,7 @@ class Controller:
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
 
-#inspiré de la fontion du lab 4
+# Fonction odeur inspirée de la fontion du lab 4
 def odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80): 
     n_sources = odor_intensities.shape[1]
 
