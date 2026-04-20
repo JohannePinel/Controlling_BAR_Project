@@ -15,7 +15,7 @@ class Controller:
 
         ################################### code estelle ##################################
         self.search_step = 0
-        self.SPIRAL_SPEED = 0.00005  # tuned, how fast the spiral expands
+        self.SPIRAL_SPEED = 0.0001  # tuned, how fast the spiral expands
         '''
         # Searching for odor source (8-figure) inspired from week 3
         turning_speed = 0.5  
@@ -82,7 +82,7 @@ class Controller:
             #drives = self.search_pattern[self.search_step % len(self.search_pattern)]
             t = self.search_step
             # start nearly straight, gradually increase turn bias
-            bias = max(1 - (t/5) * self.SPIRAL_SPEED, 0.1)  # decrease from 0.8 to 0.1
+            bias = max(1 - (t/6) * self.SPIRAL_SPEED, 0.3)  # decrease from 1 to 0.4
             drives = np.array([1.0 + bias, 1.0 - bias])
             self.search_step += 1
         
