@@ -71,7 +71,7 @@ class Controller:
         ################################### code estelle ##################################
     
         # State transitions
-        obstacle_threshold = 0.8    # à tester
+        obstacle_threshold = 0.9    # à tester
         if obstacle_max > obstacle_threshold:
             #print("we are avoiding")
             self.state = "AVOID"
@@ -103,7 +103,7 @@ class Controller:
             #print('searching moode')
             # searches in a spiral to avoid getting stuck in a loop
             t = self.search_step
-            bias = max(0.8 - (t/6) * self.SPIRAL_SPEED, 0.3)  # decrease from 1 to 0.4
+            bias = max(0.7 - (t/6) * self.SPIRAL_SPEED, 0.3)  # decrease from 1 to 0.4
             drives = np.array([1.0 + bias, 1.0 - bias])
             self.search_step += 1
         else :
