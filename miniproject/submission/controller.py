@@ -17,22 +17,9 @@ class Controller:
         self.search_step = 0
         self.SPIRAL_SPEED = 0.0001  # tuned, how fast the spiral expands
 
-
-        '''
-        # Searching for odor source (8-figure) inspired from week 3
-        turning_speed = 0.5  
-        n_steps_full_turn = round(2 * np.pi / np.abs(turning_speed) / sim.timestep)
-        turn_right = np.array([1.2, 0.2])
-        turn_left = np.array([0.2, 1.2])
-        self.search_pattern = np.concatenate([
-            np.tile(turn_right, (n_steps_full_turn, 1)),
-            np.tile(turn_left, (n_steps_full_turn, 1)),
-        ])
-        self.search_step = 0  # current position in figure-8
-        '''
         # State machine
         self.state = "SEARCH"  # start searching until odor is found
-        self.confirm_counter = 0
+        #self.confirm_counter = 0
         #self.CONFIRM_THRESHOLD = 3  # steps of signal needed before switching to FOLLOW
         ###############################################################################
         ################################### code djo ##################################
@@ -44,13 +31,9 @@ class Controller:
     def step(self, sim: MiniprojectSimulation):
         # implement your control algorithm here
         self.step_count += 1
-
+        drives = np.array([0, 0])
         olfaction = sim.get_olfaction(sim.fly.name)
-       
-        #print(f"Olfaction: {olfaction}")  # for debugging purposes
-        # get other observations as needed
-        drives = np.array([2.0, 2.0])  # replace with your control logic
-        
+
         ################################### test joh ##################################
 
         if self.odor_smooth is None:
@@ -58,14 +41,20 @@ class Controller:
         else:
             self.odor_smooth = (1 - self.alpha) * self.odor_smooth + self.alpha * olfaction
 
-
-        #drives = _odor_to_drives(self.odor_smooth)
-
+        odor_strength = self.odor_smooth[:, 0].mean()
         ########################## vision obstacle avoidance #################
         self.ommatidia = sim.get_ommatidia_readouts(sim.fly.name)
 
-        self.left_intensity = self.ommatidia[0].mean()
-        self.right_intensity = self.ommatidia[1].mean()
+        # only use middle portion of each eye - where grass blades appear
+        total_rows = self.ommatidia[0].shape[0]
+        upper = int(total_rows * 0.45)  # start at 30%
+        lower = int(total_rows * 0.55)  # end at 70%
+        self.left_intensity = self.ommatidia[0][upper:lower].mean()
+        self.right_intensity = self.ommatidia[1][upper:lower].mean()
+
+        # if we want to get back at using the entire vision
+        #self.left_intensity = self.ommatidia[0].mean()
+        #self.right_intensity = self.ommatidia[1].mean()
 
         if self.step_count % 100 == 0:
             im = np.concatenate([
@@ -77,40 +66,29 @@ class Controller:
         obstacle_left = 1 - self.left_intensity 
         obstacle_right = 1 - self.right_intensity
         obstacle_max = max(obstacle_left, obstacle_right)
-        ###############################################################################
-                
+        
         ###############################################################################
         ################################### code estelle ##################################
-
-        odor_strength = self.odor_smooth[:, 0].mean()
     
         # State transitions
-        obstacle_threshold = 2    # à tester
+        obstacle_threshold = 0.8    # à tester
         if obstacle_max > obstacle_threshold:
-            print("we are avoiding")
+            #print("we are avoiding")
             self.state = "AVOID"
 
         if self.state == "AVOID":
             if obstacle_max < obstacle_threshold:
                 self.state =="SEARCH"
-                print("finished avoiding, back to search")
-
-
-        if self.state == "FOLLOW":
+                #print("finished avoiding, back to search")
+        elif self.state == "FOLLOW":
             if odor_strength < 1e-7:  # lost the signal
                 self.state = "SEARCH"
-                self.confirm_counter = 0
                 print('lost the smell')
-                # don't reset search_step — continue figure-8 where we left off
         elif self.state == "SEARCH":
             if odor_strength > 1e-7:
-                self.confirm_counter += 1
                 self.state = "FOLLOW"
                 print('found the smell')
-            else:
-                self.confirm_counter = 0  # reset if signal disappears again
-
-        
+ 
         
         # Compute drives based on state
         if self.state == "AVOID":
@@ -123,18 +101,13 @@ class Controller:
             drives = odor_to_drives(self.odor_smooth)
         elif self.state == "SEARCH":
             #print('searching moode')
-            #drives = self.search_pattern[self.search_step % len(self.search_pattern)]
+            # searches in a spiral to avoid getting stuck in a loop
             t = self.search_step
-            # start nearly straight, gradually increase turn bias
             bias = max(0.8 - (t/6) * self.SPIRAL_SPEED, 0.3)  # decrease from 1 to 0.4
             drives = np.array([1.0 + bias, 1.0 - bias])
             self.search_step += 1
         else :
             print("lost in between states")
-        
-        ###############################################################################
-
-
         ###############################################################################
        
         joint_angles, adhesion = self.turning_controller.step(drives)
