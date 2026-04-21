@@ -31,7 +31,7 @@ class Controller:
     def step(self, sim: MiniprojectSimulation):
         # implement your control algorithm here
         self.step_count += 1
-        drives = np.array([0, 0])
+        drives = np.array([2.0, 2.0])
         olfaction = sim.get_olfaction(sim.fly.name)
 
         ################################### test joh ##################################
