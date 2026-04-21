@@ -16,6 +16,8 @@ class Controller:
         ################################### code estelle ##################################
         self.search_step = 0
         self.SPIRAL_SPEED = 0.0001  # tuned, how fast the spiral expands
+
+
         '''
         # Searching for odor source (8-figure) inspired from week 3
         turning_speed = 0.5  
@@ -33,10 +35,16 @@ class Controller:
         self.confirm_counter = 0
         #self.CONFIRM_THRESHOLD = 3  # steps of signal needed before switching to FOLLOW
         ###############################################################################
-
+        ################################### code djo ##################################
+        self.vision_frames = []  # frames lisibles pour affichage
+        self.step_count = 0
+        ###############################################################################
+       
 
     def step(self, sim: MiniprojectSimulation):
         # implement your control algorithm here
+        self.step_count += 1
+
         olfaction = sim.get_olfaction(sim.fly.name)
        
         #print(f"Olfaction: {olfaction}")  # for debugging purposes
@@ -52,6 +60,24 @@ class Controller:
 
 
         #drives = _odor_to_drives(self.odor_smooth)
+
+        ########################## vision obstacle avoidance #################
+        self.ommatidia = sim.get_ommatidia_readouts(sim.fly.name)
+
+        self.left_intensity = self.ommatidia[0].mean()
+        self.right_intensity = self.ommatidia[1].mean()
+
+        if self.step_count % 100 == 0:
+            im = np.concatenate([
+                sim.fly.retina.hex_pxls_to_human_readable(eye.max(-1), color_8bit=True)
+                for eye in self.ommatidia
+            ], axis=1)
+            self.vision_frames.append(im)
+            
+        obstacle_left = 1 - self.left_intensity 
+        obstacle_right = 1 - self.right_intensity
+        obstacle_max = max(obstacle_left, obstacle_right)
+        ###############################################################################
                 
         ###############################################################################
         ################################### code estelle ##################################
@@ -59,6 +85,17 @@ class Controller:
         odor_strength = self.odor_smooth[:, 0].mean()
     
         # State transitions
+        obstacle_threshold = 2    # à tester
+        if obstacle_max > obstacle_threshold:
+            print("we are avoiding")
+            self.state = "AVOID"
+
+        if self.state == "AVOID":
+            if obstacle_max < obstacle_threshold:
+                self.state =="SEARCH"
+                print("finished avoiding, back to search")
+
+
         if self.state == "FOLLOW":
             if odor_strength < 1e-7:  # lost the signal
                 self.state = "SEARCH"
@@ -72,12 +109,19 @@ class Controller:
                 print('found the smell')
             else:
                 self.confirm_counter = 0  # reset if signal disappears again
+
+        
         
         # Compute drives based on state
-        if self.state == "FOLLOW":
+        if self.state == "AVOID":
+            if obstacle_left > obstacle_right:
+                drives[0] -= 0.3 # tourner à droite
+            else:
+                drives[1] -= 0.3  # tourner à gauche
+        elif self.state == "FOLLOW":
             #print('following mode')
-            drives = _odor_to_drives(self.odor_smooth)
-        else:  # SEARCH
+            drives = odor_to_drives(self.odor_smooth)
+        elif self.state == "SEARCH":
             #print('searching moode')
             #drives = self.search_pattern[self.search_step % len(self.search_pattern)]
             t = self.search_step
@@ -85,19 +129,23 @@ class Controller:
             bias = max(0.8 - (t/6) * self.SPIRAL_SPEED, 0.3)  # decrease from 1 to 0.4
             drives = np.array([1.0 + bias, 1.0 - bias])
             self.search_step += 1
+        else :
+            print("lost in between states")
         
+        ###############################################################################
+
+
         ###############################################################################
        
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
 
 
-def _odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80):
-    # odor_intensities shape : (4, n_sources)
-    # n_sources peut être 1 (attractive seulement) ou 2 (attractive + aversive)
+# Fonction odeur inspirée de la fontion du lab 4
+def odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80): 
     n_sources = odor_intensities.shape[1]
 
-    # Source attractive (dimension 0 — toujours présente)
+    # Source attractive 
     attractive = np.average(
         odor_intensities[:, 0].reshape(2, 2), axis=0, weights=[9, 1]
     )
