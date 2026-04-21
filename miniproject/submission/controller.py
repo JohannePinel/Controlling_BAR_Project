@@ -55,9 +55,9 @@ class Controller:
                 
         ###############################################################################
         ################################### code estelle ##################################
-        # TEMPORARY TESTA
-        #odor_strength = self.odor_smooth[:, 0].mean()
-        odor_strength = 0.0
+
+        odor_strength = self.odor_smooth[:, 0].mean()
+    
         # State transitions
         if self.state == "FOLLOW":
             if odor_strength < 1e-7:  # lost the signal
@@ -82,7 +82,7 @@ class Controller:
             #drives = self.search_pattern[self.search_step % len(self.search_pattern)]
             t = self.search_step
             # start nearly straight, gradually increase turn bias
-            bias = max(1 - (t/6) * self.SPIRAL_SPEED, 0.3)  # decrease from 1 to 0.4
+            bias = max(0.8 - (t/6) * self.SPIRAL_SPEED, 0.3)  # decrease from 1 to 0.4
             drives = np.array([1.0 + bias, 1.0 - bias])
             self.search_step += 1
         
