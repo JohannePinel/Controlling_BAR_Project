@@ -2,34 +2,24 @@ import numpy as np
 from miniproject.simulation import MiniprojectSimulation
 
 GREEN = 1
-a1 = -0.33
-a2 = 0.33
-b1 = 497
-b2 = 199
 
 class Controller:
     def __init__(self, sim: MiniprojectSimulation):
         # you may also implement your own turning controller
         from flygym.examples.locomotion import TurningController
-
         self.turning_controller = TurningController(sim.timestep)
         
-        # color vision
-        self.frames = [] # must be out of step()
+        # Variables pour la vision
+        self.frames = []
         self.count = 0
-
-        # obstacles detection
-        self.height_obstacles = 350 # manually tuned
-        self.starts_scanning = 200 # manually tuned
-        self.starts_comparing = 360 # manually tuned
-        self.different_objects = 6 # manually tuned  
-        self.color_of_grass = 90 # manually tuned
-        self.frame_width = 900 # frames are 900 wide
-
-        self.intensities = [] # length = nb of pixels checked ; (r, g, b) for each pixel
-        self.obstacle_pos = 0 # on the hizontal axis at self.height_obstacles 
         self.last_mean_left = 128
         self.last_mean_right = 128
+        
+        # Paramètres ROI
+        self.a1 = -0.33
+        self.a2 = 0.33
+        self.b1 = 497
+        self.b2 = 199
 
 
     def step(self, sim: MiniprojectSimulation):
@@ -40,7 +30,7 @@ class Controller:
         # color vision
         if self.count % 100 == 0:
             self.color_vision(sim) 
-            self.show_ROI(sim)
+            #self.show_ROI(sim)
             #self.checks_for_ostacles(sim)
             #self.checks_height(sim)
 
@@ -55,24 +45,20 @@ class Controller:
 ###########################################################
     
     def color_vision(self, sim: MiniprojectSimulation):
-        self.im = np.concatenate(
-            [
-                sim.get_raw_vision(sim.fly.name)[0],
-                sim.get_raw_vision(sim.fly.name)[1]
-                
-            ], axis=1
-        )
-        new_mean_left, new_mean_right = self.mean_green_inside_ROI(self.im) 
+        vision_data = sim.get_raw_vision(sim.fly.name)
+        im = np.concatenate([vision_data[0], vision_data[1]], axis=1)
+
+        new_mean_left, new_mean_right = self.mean_green_inside_ROI(im) 
 
         if np.abs(new_mean_left - self.last_mean_left) > 6: # 6 manually tuned
-            print("obstacle at left")
+            #print("obstacle at left")
             self.last_mean_left = new_mean_left
         
         if np.abs(new_mean_right - self.last_mean_right) > 6:
-            print("obstacle at right")
+            #print("obstacle at right")
             self.last_mean_right = new_mean_right
 
-        self.frames.append(self.im)
+        self.frames.append(im)
         return 0
     
     """
@@ -158,22 +144,18 @@ class Controller:
             return False
     
     def mean_green_inside_ROI(self, im):
-        intensities_green_inside_ROI_left = 0
-        intensities_green_inside_ROI_right = 0
-        div = 1
-
-        for x in range(290, 466): 
-            for y in range(350, 451):
-                if self.is_inside_ROI(x, y) and im[y, x][GREEN] != 0: 
-                    intensities_green_inside_ROI_left += (im[y, x][GREEN])
-                    div += 1
-
-        for x in range(466, 621): 
-            for y in range(350, 451):
-                if self.is_inside_ROI(x, y) and im[y, x][GREEN] != 0: 
-                    intensities_green_inside_ROI_right += (im[y, x][GREEN])
-
-        return intensities_green_inside_ROI_left/div, intensities_green_inside_ROI_right/div
+        """ 100x+ plus rapide que les for()"""
+        green_channel = im[:, :, GREEN]
+        
+        # ROI gauche [290:466, 350:451]
+        roi_left = green_channel[350:451, 290:466]
+        mean_left = np.mean(roi_left[roi_left != 0]) if np.any(roi_left != 0) else 128
+        
+        # ROI droite [466:621, 350:451]
+        roi_right = green_channel[350:451, 466:621]
+        mean_right = np.mean(roi_right[roi_right != 0]) if np.any(roi_right != 0) else 128
+        
+        return mean_left, mean_right
 
 
                 
