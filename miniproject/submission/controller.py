@@ -32,6 +32,18 @@ class Controller:
         # inhibitateur de marche
         self.k = 1
 
+        # param ommatidia 
+        self.limR = 75
+        self.limH = 125
+        self.limM = 250
+        self.limB = 375
+
+        # var ommatidia
+        self.intensityH = 0
+        self.intensityB = 0
+        self.ratio = []
+
+
 
     def step(self, sim: MiniprojectSimulation):
         self.count += 1
@@ -39,9 +51,10 @@ class Controller:
         #olfaction = sim.get_olfaction(sim.fly.name)
 
         # color vision
-        if self.count % 100 == 0:
+        if self.count % 200 == 0:
             #self.color_vision(sim) 
             self.ommatidia_vision(sim)
+            #self.visualiser_data_ommatidia(sim)
             
             #if self.count % 400 == 0:
                 #self.show_ROI(sim) 
@@ -77,25 +90,6 @@ class Controller:
                 self.k = 0 # stop walking if obstacle detected"""
             self.last_mean_right = new_mean_right
 
-        self.frames.append(im)
-        return 0
-    
-    def ommatidia_vision_p(self, sim: MiniprojectSimulation):
-        vision_data = sim.get_ommatidia_readouts(sim.fly.name)
-        im = np.concatenate([self.retina.hex_pxls_to_human_readable(eye.max(-1), color_8bit=True)
-                for eye in vision_data], axis=1)
-
-        self.frames.append(im)
-        return 0
-
-    def ommatidia_vision(self, sim: MiniprojectSimulation):
-        vision_data = sim.get_ommatidia_readouts(sim.fly.name)
-        retina = sim.world.fly_lookup[sim.fly.name].retina
-        im = np.concatenate(
-            [retina.hex_pxls_to_human_readable(eye.max(-1), color_8bit=True)
-            for eye in vision_data],
-            axis=1,
-        )
         self.frames.append(im)
         return 0
     
@@ -214,6 +208,57 @@ class Controller:
         mean_right = np.mean(roi_right[roi_right != 0]) if np.any(roi_right != 0) else 128
         
         return mean_left, mean_right
+    
+
+    def ommatidia_vision(self, sim: MiniprojectSimulation):
+        vision_data = sim.get_ommatidia_readouts(sim.fly.name)
+        retina = sim.world.fly_lookup[sim.fly.name].retina
+        im = np.concatenate(
+            [retina.hex_pxls_to_human_readable(eye.max(-1), color_8bit=True)
+            for eye in vision_data],
+            axis=1,
+        )
+        self.tilt(sim, im)
+        self.frames.append(self.apply_grid(sim, im))
+        return 0
+    
+    def apply_grid(self, sim: MiniprojectSimulation, im):
+        im[self.limM, :] = 0
+        im[self.limH, 0:self.limR] = 0
+        im[self.limB, 0:self.limR] = 0
+
+        im[100:400, self.limR] = 0
+
+        return im
+    
+    def tilt(self, sim: MiniprojectSimulation, im):
+        for x in range(self.limR):
+            for y in (self.limH , self.limM):
+                self.intensityH += im[y, x]
+            
+            for y in (self.limM , self.limB):
+                self.intensityB += im[y, x]
+        
+        self.ratio.append([self.intensityH, self.intensityB, self.intensityH/(self.intensityB+1e-5)])
+        return 0
+
+    
+    def visualiser_data_ommatidia(self, sim: MiniprojectSimulation):
+        vision_data = sim.get_ommatidia_readouts(sim.fly.name)
+        retina = sim.world.fly_lookup[sim.fly.name].retina
+        im = np.concatenate(
+            [retina.hex_pxls_to_human_readable(eye.max(-1), color_8bit=True)
+            for eye in vision_data],
+            axis=1,
+        )
+        im[:, 675:900] = 0
+        im[275, :] = 0
+        im[300, 25:] = 0
+        im[325, 50:] = 0
+        im[350, 75:] = 0
+        im[375, 100:] = 0
+        self.frames.append(im)
+        return 0
 
 
                 
