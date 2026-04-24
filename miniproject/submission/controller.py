@@ -12,26 +12,31 @@ TURN_RIGHT = 1.25
 TURN_LEFT = 1/TURN_RIGHT
 
 class Controller:
-    def __init__(self, sim: MiniprojectSimulation, threshold, mode):
+    def __init__(self, sim: MiniprojectSimulation, threshold_obstacle, mode="normal", pitch_weight=410):
         # you may also implement your own turning controller
         from flygym.examples.locomotion import TurningController
         self.turning_controller = TurningController(sim.timestep)
         
         # var pr la vision
         self.frames = []
+        
+        # param détection de pente proprioceptive
+        self.current_slope_category = "flat"
+        self.pitch = 0
+        self.pitch_weight = pitch_weight
 
         # param obstacles
         self.count = 0
         self.last_mean_left = 128
         self.last_mean_right = 128
-        self.th_right = threshold
-        self.th_left = threshold
+        self.th_right = threshold_obstacle
+        self.th_left = threshold_obstacle
         
         # param ROI
         self.al = -0.22
         self.ar = 0.22
-        self.bl = 440
-        self.br = 240
+        self.bl = 440+self.pitch*self.pitch_weight
+        self.br = 240+self.pitch*self.pitch_weight
 
         self.vertll = 280
         self.vertlm = 375
@@ -39,6 +44,7 @@ class Controller:
         self.vertrr = 620
         self.widthROI = 75
 
+        # mode 
         self.mode = mode
 
         # inhibitateur de marche
@@ -60,17 +66,22 @@ class Controller:
 
     def step(self, sim: MiniprojectSimulation):
         self.count += 1
-        #olfaction = sim.get_olfaction(sim.fly.name)
+
+        if self.count % 750 == 0:
+                self.pitch = self.detect_slope_proprioceptive(sim)
             
-        # color vision
         if self.count % 200 == 0:
             self.color_vision(sim)
-            if self.mode == "tuning":
+            
+            if self.mode == "tuning ROI" or self.mode == "tuning slope":
                 self.show_ROI(sim, self.frames[-1], left=255, right=255, fullfill=True)
+            
             else:
                 self.detect_mean_variation(sim)
-            #self.ommatidia_vision(sim)
-            #visualize_data_ommatidia(sim)
+            
+        #self.ommatidia_vision(sim)
+        #visualize_data_ommatidia(sim)
+        #olfaction = sim.get_olfaction(sim.fly.name)
 
 
         drives = np.array([1.0*self.k, 1.0/self.k])  
@@ -171,6 +182,31 @@ class Controller:
     def obstacle_at_right(self, sim: MiniprojectSimulation, im, new_mean_right):
         self.show_ROI(sim, im, left=False, right=new_mean_right, fullfill=True)
         return 0
+    
+    def detect_slope_proprioceptive(self, sim: MiniprojectSimulation):
+        from scipy.spatial.transform import Rotation
+        
+        # Obtenir l'orientation du thorax (premier corps = index 0)
+        body_rotations = sim.get_body_rotations(sim.fly.name)
+        thorax_quat = body_rotations[0]  # quaternion du thorax
+        
+        # Convertir quaternion en angles d'Euler (YAW, PITCH, ROLL)
+        # MuJoCo utilise l'ordre ZYX par défaut
+        rotation = Rotation.from_quat(thorax_quat)
+        euler_angles = rotation.as_euler('xyz')  # [roll, pitch, yaw]
+        pitch = euler_angles[1]  # pitch ~[-0.5, 0.5]
+        
+        # Seuil en radians (~5-10 degrés)
+        threshold = 0.08  # ~4.5 degrés
+        
+        if pitch > threshold:
+            self.current_slope_category  = "ascending"
+        elif pitch < -threshold:
+            self.current_slope_category  = "descending"
+        else:
+            self.current_slope_category = "flat"
+        
+        return pitch
     
     """
     can_walk = False
