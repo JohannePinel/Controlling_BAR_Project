@@ -28,13 +28,13 @@ class Controller:
         self.th_left = threshold
         
         # param ROI
-        self.a1 = -0.33
-        self.a2 = 0.33
-        self.b1 = 485
-        self.b2 = 185
-        self.vertl = 310
-        self.vertm = 455
-        self.vertr = 600
+        self.a1 = -0.22
+        self.a2 = 0.22
+        self.b1 = 440
+        self.b2 = 240
+        self.vertl = 290
+        self.vertm = 450
+        self.vertr = 620
         self.widthROI = 40
         self.colorROI = COLOR_BLUE
 
@@ -50,31 +50,25 @@ class Controller:
         # var ommatidia
         self.intensityH = 0
         self.intensityB = 0
-        self.ratio = []
+        self.ratio = [0, 0, 0]
         self.last_ratios = 6 
 
 
 
     def step(self, sim: MiniprojectSimulation):
         self.count += 1
-        # implement your control algorithm here
         #olfaction = sim.get_olfaction(sim.fly.name)
 
         # color vision
         if self.count % 200 == 0:
-            self.color_vision(sim, show_ROI=True)
+            self.color_vision(sim)
+            self.detect_mean_variation(sim)
+            #self.show_ROI(sim, self.frames[-1], left=255, right=255, fullfill=True)
             #self.ommatidia_vision(sim)
             #visualize_data_ommatidia(sim)
-            
-            #if self.count % 400 == 0:
-                #self.show_ROI(sim) 
-            #self.show_ROI(sim)
-            #self.checks_for_ostacles(sim)
-            #self.checks_height(sim)
 
 
-        # get other observations as needed
-        drives = np.array([1.0*self.k, 1.0/self.k])  # replace with your control logic
+        drives = np.array([1.0*self.k, 1.0/self.k])  
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
 
@@ -82,74 +76,96 @@ class Controller:
 #################### TEST ADRI ############################
 ###########################################################
     
-    def color_vision(self, sim: MiniprojectSimulation, show_ROI=False):
+    def color_vision(self, sim: MiniprojectSimulation):
 
         vision_data = sim.get_raw_vision(sim.fly.name)
         im = np.concatenate([vision_data[0], vision_data[1]], axis=1)
-
-        im = self.mean_green_inside_ROI(im) 
-        """
-        if np.abs(new_mean_left - self.last_mean_left) > self.th_left: 
-            if self.k>0:
-                self.obstacle_at_left(sim)
-                #self.k = 0 # stop walking if obstacle detected
-            self.last_mean_left = new_mean_left
-        
-        if np.abs(new_mean_right - self.last_mean_right) > self.th_right:
-            if self.k>0:
-                self.obstacle_at_right(sim)
-                #self.k = 0 # stop walking if obstacle detected
-            self.last_mean_right = new_mean_right
-
-        if show_ROI:
-            im = self.show_ROI(sim, im)
-        """
         self.frames.append(im)
+
         return 0
 
-    def show_ROI(self, sim: MiniprojectSimulation, frame):
+    def show_ROI(self, sim: MiniprojectSimulation, im, left, right, fullfill=False):
         
-        height, width = frame.shape[:2]
-        
-        y_coords, x_coords = np.meshgrid(np.arange(height), np.arange(width), indexing='ij')
-        roi_mask = (
-            (np.abs(y_coords - self.f1(x_coords)) < 0.33) |  # left eye up
-            (np.abs(y_coords - self.f1(x_coords-self.widthROI)) < 0.33) | # left eye bottom
-            (np.abs(y_coords - self.f2(x_coords)) < 0.33) |  # right eye up
-            (np.abs(y_coords - self.f2(x_coords+self.widthROI)) < 0.33) | # right eye bottom
-            (x_coords == self.vertl) |                             # col left eye
-            (x_coords == self.vertr)                                 # col right eye
-        )
-        frame[roi_mask] = self.colorROI
-
-        return frame
+        # left eye
+        if left:
+            for x in range(self.vertl, self.vertm):
+                for y_inc in range(self.widthROI):
+                    if fullfill or (y_inc == 0 or y_inc == self.widthROI-1):
+                        im[int(round(self.f1(x-y_inc))), x] = [min(left, 255), 0, 0]
+        # right eye
+        if right:
+            for x in range(self.vertm, self.vertr):
+                for y_inc in range(self.widthROI):
+                    if fullfill or (y_inc == 0 or y_inc == self.widthROI-1):
+                        im[int(round(self.f2(x+y_inc))), x] = [min(right, 255), 0, 0]
+        return im
     
     def f1(self, x1):
         return (self.a1*x1 + self.b1)
     def f2(self, x1):
         return (self.a2*x1 + self.b2)
     
-    def obstacle_at_left(self, sim: MiniprojectSimulation):
-        self.colorROI = COLOR_BLACK
-        return 0
-    
-    def obstacle_at_right(self, sim: MiniprojectSimulation):
-        self.colorROI = COLOR_RED
-        return 0
+    def detect_mean_variation(self, sim: MiniprojectSimulation):
+        im = self.frames[-1]
+        new_mean_left, new_mean_right = self.mean_green_inside_ROI(im)
+
+        if np.abs(new_mean_left - self.last_mean_left) > self.th_left:
+            self.obstacle_at_left(sim, im, new_mean_left)
+            self.last_mean_left = new_mean_left
+
+        if np.abs(new_mean_right - self.last_mean_right) > self.th_right:
+            self.obstacle_at_right(sim, im, new_mean_right)
+            self.last_mean_right = new_mean_right
+
+        return new_mean_left, new_mean_right
     
     def mean_green_inside_ROI(self, im):
+        """
+        Calcule la moyenne de l'intensité du canal vert pour chaque ROI
+        (oeil gauche et oeil droit)
         
-        # left eye
+        Returns:
+            Tuple[float, float]: (moyenne_gauche, moyenne_droite)
+        """
+        mean_green_ROI_left = 0
+        mean_green_ROI_right = 0
+        count_left = 0
+        count_right = 0
+        
+        # Left eye
         for x in range(self.vertl, self.vertm):
             for y_inc in range(self.widthROI):
-                im[int(round(self.f1(x-y_inc))), x] = COLOR_RED
+                y = int(round(self.f1(x - y_inc)))
+                if 0 <= y < im.shape[0]:   
+                    count_left += 1
+                    # mean_green_ROI_left += im[y, x, GREEN]  
+                    mean_green_ROI_left += (im[y, x, GREEN]-mean_green_ROI_left)/count_left # directly constitute the mean
 
-        # right eye
+        # Right eye
         for x in range(self.vertm, self.vertr):
             for y_inc in range(self.widthROI):
-                im[int(round(self.f2(x+y_inc))), x] = COLOR_RED
+                y = int(round(self.f2(x + y_inc)))
+                if 0 <= y < im.shape[0]:    
+                    count_right += 1
+                    # mean_green_ROI_right += im[y, x, GREEN]  
+                    mean_green_ROI_right += (im[y, x, GREEN]-mean_green_ROI_right)/count_right # directly constitute the mean
         
-        return im
+        # only if we don't use the trick 
+        """
+        if count_left > 0:
+            mean_green_ROI_left = mean_green_ROI_left / count_left
+        if count_right > 0:
+            mean_green_ROI_right = mean_green_ROI_right / count_right
+        """
+        return mean_green_ROI_left, mean_green_ROI_right
+    
+    def obstacle_at_left(self, sim: MiniprojectSimulation, im, new_mean_left):
+        self.show_ROI(sim, im, left=new_mean_left, right=False, fullfill=True)
+        return 0
+    
+    def obstacle_at_right(self, sim: MiniprojectSimulation, im, new_mean_right):
+        self.show_ROI(sim, im, left=False, right=new_mean_right, fullfill=True)
+        return 0
     
     """
     can_walk = False
@@ -268,8 +284,6 @@ class Controller:
         self.intensityB = 0
 
         return 0
-
-    
 
     def last_ratios_mean(self):
         
