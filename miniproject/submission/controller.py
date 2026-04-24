@@ -12,7 +12,7 @@ TURN_RIGHT = 1.25
 TURN_LEFT = 1/TURN_RIGHT
 
 class Controller:
-    def __init__(self, sim: MiniprojectSimulation, threshold):
+    def __init__(self, sim: MiniprojectSimulation, threshold, mode):
         # you may also implement your own turning controller
         from flygym.examples.locomotion import TurningController
         self.turning_controller = TurningController(sim.timestep)
@@ -28,15 +28,18 @@ class Controller:
         self.th_left = threshold
         
         # param ROI
-        self.a1 = -0.22
-        self.a2 = 0.22
-        self.b1 = 440
-        self.b2 = 240
-        self.vertl = 290
-        self.vertm = 450
-        self.vertr = 620
-        self.widthROI = 40
-        self.colorROI = COLOR_BLUE
+        self.al = -0.22
+        self.ar = 0.22
+        self.bl = 440
+        self.br = 240
+
+        self.vertll = 280
+        self.vertlm = 375
+        self.vertrm = 525
+        self.vertrr = 620
+        self.widthROI = 75
+
+        self.mode = mode
 
         # inhibitateur de marche
         self.k = 1
@@ -58,12 +61,14 @@ class Controller:
     def step(self, sim: MiniprojectSimulation):
         self.count += 1
         #olfaction = sim.get_olfaction(sim.fly.name)
-
+            
         # color vision
         if self.count % 200 == 0:
             self.color_vision(sim)
-            self.detect_mean_variation(sim)
-            #self.show_ROI(sim, self.frames[-1], left=255, right=255, fullfill=True)
+            if self.mode == "tuning":
+                self.show_ROI(sim, self.frames[-1], left=255, right=255, fullfill=True)
+            else:
+                self.detect_mean_variation(sim)
             #self.ommatidia_vision(sim)
             #visualize_data_ommatidia(sim)
 
@@ -88,22 +93,22 @@ class Controller:
         
         # left eye
         if left:
-            for x in range(self.vertl, self.vertm):
+            for x in range(self.vertll, self.vertlm):
                 for y_inc in range(self.widthROI):
                     if fullfill or (y_inc == 0 or y_inc == self.widthROI-1):
                         im[int(round(self.f1(x-y_inc))), x] = [min(left, 255), 0, 0]
         # right eye
         if right:
-            for x in range(self.vertm, self.vertr):
+            for x in range(self.vertrm, self.vertrr):
                 for y_inc in range(self.widthROI):
                     if fullfill or (y_inc == 0 or y_inc == self.widthROI-1):
                         im[int(round(self.f2(x+y_inc))), x] = [min(right, 255), 0, 0]
         return im
     
     def f1(self, x1):
-        return (self.a1*x1 + self.b1)
+        return (self.al*x1 + self.bl)
     def f2(self, x1):
-        return (self.a2*x1 + self.b2)
+        return (self.ar*x1 + self.br)
     
     def detect_mean_variation(self, sim: MiniprojectSimulation):
         im = self.frames[-1]
@@ -133,7 +138,7 @@ class Controller:
         count_right = 0
         
         # Left eye
-        for x in range(self.vertl, self.vertm):
+        for x in range(self.vertll, self.vertlm):
             for y_inc in range(self.widthROI):
                 y = int(round(self.f1(x - y_inc)))
                 if 0 <= y < im.shape[0]:   
@@ -142,7 +147,7 @@ class Controller:
                     mean_green_ROI_left += (im[y, x, GREEN]-mean_green_ROI_left)/count_left # directly constitute the mean
 
         # Right eye
-        for x in range(self.vertm, self.vertr):
+        for x in range(self.vertrm, self.vertrr):
             for y_inc in range(self.widthROI):
                 y = int(round(self.f2(x + y_inc)))
                 if 0 <= y < im.shape[0]:    
