@@ -2,11 +2,17 @@ import numpy as np
 from miniproject.simulation import MiniprojectSimulation
 
 GREEN = 1
+
+COLOR_RED = [255, 0, 0]
+COLOR_GREEN = [0, 255, 0]
+COLOR_BLUE = [0, 0, 255]
+COLOR_BLACK = [0, 0, 0]
+
 TURN_RIGHT = 1.25
 TURN_LEFT = 1/TURN_RIGHT
 
 class Controller:
-    def __init__(self, sim: MiniprojectSimulation):
+    def __init__(self, sim: MiniprojectSimulation, threshold):
         # you may also implement your own turning controller
         from flygym.examples.locomotion import TurningController
         self.turning_controller = TurningController(sim.timestep)
@@ -18,16 +24,19 @@ class Controller:
         self.count = 0
         self.last_mean_left = 128
         self.last_mean_right = 128
-        self.th_right = 12
-        self.th_left = 12
-        self.vertl = 330
-        self.vertr = 620
+        self.th_right = threshold
+        self.th_left = threshold
         
         # param ROI
         self.a1 = -0.33
         self.a2 = 0.33
         self.b1 = 485
         self.b2 = 185
+        self.vertl = 330
+        self.vertm = 475
+        self.vertr = 620
+        self.widthROI = 40
+        self.colorROI = COLOR_BLUE
 
         # inhibitateur de marche
         self.k = 1
@@ -42,6 +51,7 @@ class Controller:
         self.intensityH = 0
         self.intensityB = 0
         self.ratio = []
+        self.last_ratios = 6 
 
 
 
@@ -52,9 +62,9 @@ class Controller:
 
         # color vision
         if self.count % 200 == 0:
-            #self.color_vision(sim) 
-            self.ommatidia_vision(sim)
-            #self.visualiser_data_ommatidia(sim)
+            self.color_vision(sim, show_ROI=True)
+            #self.ommatidia_vision(sim)
+            #visualize_data_ommatidia(sim)
             
             #if self.count % 400 == 0:
                 #self.show_ROI(sim) 
@@ -72,26 +82,74 @@ class Controller:
 #################### TEST ADRI ############################
 ###########################################################
     
-    def color_vision(self, sim: MiniprojectSimulation):
+    def color_vision(self, sim: MiniprojectSimulation, show_ROI=False):
+
         vision_data = sim.get_raw_vision(sim.fly.name)
         im = np.concatenate([vision_data[0], vision_data[1]], axis=1)
 
         new_mean_left, new_mean_right = self.mean_green_inside_ROI(im) 
 
         if np.abs(new_mean_left - self.last_mean_left) > self.th_left: 
-            """if self.k>0:
-                print("obstacle at left")
-                self.k = 0 # stop walking if obstacle detected"""
+            if self.k>0:
+                self.obstacle_at_left(sim)
+                #self.k = 0 # stop walking if obstacle detected
             self.last_mean_left = new_mean_left
         
         if np.abs(new_mean_right - self.last_mean_right) > self.th_right:
-            """if self.k>0:
-                print("obstacle at right")
-                self.k = 0 # stop walking if obstacle detected"""
+            if self.k>0:
+                self.obstacle_at_right(sim)
+                #self.k = 0 # stop walking if obstacle detected
             self.last_mean_right = new_mean_right
+
+        if show_ROI:
+            im = self.show_ROI(sim, im)
 
         self.frames.append(im)
         return 0
+
+    def show_ROI(self, sim: MiniprojectSimulation, frame):
+        
+        height, width = frame.shape[:2]
+        
+        y_coords, x_coords = np.meshgrid(np.arange(height), np.arange(width), indexing='ij')
+        roi_mask = (
+            (np.abs(y_coords - self.f1(x_coords)) < 0.33) |  # left eye up
+            (np.abs(y_coords - self.f1(x_coords-self.widthROI)) < 0.33) | # left eye bottom
+            (np.abs(y_coords - self.f2(x_coords)) < 0.33) |  # right eye up
+            (np.abs(y_coords - self.f2(x_coords+self.widthROI)) < 0.33) | # right eye bottom
+            (x_coords == self.vertl) |                             # col left eye
+            (x_coords == self.vertr)                                 # col right eye
+        )
+        frame[roi_mask] = self.colorROI
+
+        return frame
+    
+    def f1(self, x1):
+        return (self.a1*x1 + self.b1)
+    def f2(self, x1):
+        return (self.a2*x1 + self.b2)
+    
+    def obstacle_at_left(self, sim: MiniprojectSimulation):
+        self.colorROI = COLOR_BLACK
+        return 0
+    
+    def obstacle_at_right(self, sim: MiniprojectSimulation):
+        self.colorROI = COLOR_RED
+        return 0
+    
+    def mean_green_inside_ROI(self, im):
+        
+        # left eye
+        for x in range(self.vertl, self.vertm):
+            for y_inc in range(self.widthROI):
+                im[int(round(self.f1(x-y_inc))), x] = COLOR_RED
+
+        # right eye
+        for x in range(self.vertm, self.vertr):
+            for y_inc in range(self.widthROI):
+                im[int(round(self.f1(x+y_inc))), x] = COLOR_RED
+        
+        return im
     
     """
     can_walk = False
@@ -157,57 +215,6 @@ class Controller:
             if np.any(self.frames[-1][self.height_obstacles, i] != [255, 0, 0]):
                 self.frames[-1][self.height_obstacles, i] = [0, 0, 128] 
         return 0
-
-    def f1(self, x1):
-        return (self.a1*x1 + self.b1)
-    def f2(self, x1):
-        return (self.a2*x1 + self.b2)
-
-    def show_ROI(self, sim: MiniprojectSimulation):
-        """
-        for x in range(900):
-            for y in range(512):
-                if np.abs(y - self.f1(x))<(0.33) or np.abs(y - self.f2(x))<(0.33) or x==290 or x==620:
-                    self.frames[-1][y, x] = [255, 0, 0]
-        """
-
-        frame = self.frames[-1]
-        height, width = frame.shape[:2]
-        
-        # Créer des grilles de coordonnées
-        y_coords, x_coords = np.meshgrid(np.arange(height), np.arange(width), indexing='ij')
-        
-        # Créer le masque ROI (les points qui satisfont les conditions)
-        roi_mask = (
-            (np.abs(y_coords - self.f1(x_coords)) < 0.33) |  # ligne 1
-            (np.abs(y_coords - self.f2(x_coords)) < 0.33) |  # ligne 2
-            (x_coords == self.vertl) |                               # colonne 1
-            (x_coords == self.vertr)                                 # colonne 2
-        )
-        
-        # Appliquer la couleur rouge à tous les pixels du masque en une seule opération
-        frame[roi_mask] = [255, 0, 0]
-
-
-    
-    def is_inside_ROI(self, x, y):
-        if np.abs(y - self.f1(x))<(0.33) and np.abs(y - self.f2(x))<(0.33) and x==self.vertl and x==self.vertr:
-            return True
-        else:
-            return False
-    
-    def mean_green_inside_ROI(self, im):
-        green_channel = im[:, :, GREEN]
-        
-        # ROI gauche [self.vertl:466, 350:451]
-        roi_left = green_channel[350:451, self.vertl:466]
-        mean_left = np.mean(roi_left[roi_left != 0]) if np.any(roi_left != 0) else 128
-        
-        # ROI droite [self.vertr:621, 350:451]
-        roi_right = green_channel[350:451, self.vertr:621]
-        mean_right = np.mean(roi_right[roi_right != 0]) if np.any(roi_right != 0) else 128
-        
-        return mean_left, mean_right
     
 
     def ommatidia_vision(self, sim: MiniprojectSimulation):
@@ -222,28 +229,7 @@ class Controller:
         self.frames.append(self.apply_grid(sim, im))
         return 0
     
-    def apply_grid(self, sim: MiniprojectSimulation, im):
-        im[self.limM, :] = 0
-        im[self.limH, 0:self.limR] = 0
-        im[self.limB, 0:self.limR] = 0
-
-        im[100:400, self.limR] = 0
-
-        return im
-    
-    def tilt(self, sim: MiniprojectSimulation, im):
-        for x in range(self.limR):
-            for y in (self.limH , self.limM):
-                self.intensityH += im[y, x]
-            
-            for y in (self.limM , self.limB):
-                self.intensityB += im[y, x]
-        
-        self.ratio.append([self.intensityH, self.intensityB, self.intensityH/(self.intensityB+1e-5)])
-        return 0
-
-    
-    def visualiser_data_ommatidia(self, sim: MiniprojectSimulation):
+    def visualize_data_ommatidia(self, sim: MiniprojectSimulation):
         vision_data = sim.get_ommatidia_readouts(sim.fly.name)
         retina = sim.world.fly_lookup[sim.fly.name].retina
         im = np.concatenate(
@@ -259,6 +245,32 @@ class Controller:
         im[375, 100:] = 0
         self.frames.append(im)
         return 0
+    
+    def apply_grid(self, sim: MiniprojectSimulation, im):
+        im[self.limM, :] = 0
+        im[self.limH, 0:self.limR] = 0
+        im[self.limB, 0:self.limR] = 0
 
+        im[100:400, self.limR] = 0
 
-                
+        return im
+    
+    def tilt(self, sim: MiniprojectSimulation, im):
+        for x in range(self.limR):
+            for y in (self.limH , self.limM):
+                self.intensityH += 0.01*im[y, x]
+            
+            for y in (self.limM , self.limB):
+                self.intensityB += 0.01*im[y, x]
+        
+        self.ratio.append([self.intensityH, self.intensityB, self.intensityH/(self.intensityB+1e-5)])
+        self.intensityH = 0
+        self.intensityB = 0
+
+        return 0
+
+    
+
+    def last_ratios_mean(self):
+        
+        return np.mean([x[2] for x in self.ratio[-self.last_ratios:]])
