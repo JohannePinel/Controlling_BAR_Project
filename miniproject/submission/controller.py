@@ -32,9 +32,9 @@ class Controller:
         self.a2 = 0.33
         self.b1 = 485
         self.b2 = 185
-        self.vertl = 330
-        self.vertm = 475
-        self.vertr = 620
+        self.vertl = 310
+        self.vertm = 455
+        self.vertr = 600
         self.widthROI = 40
         self.colorROI = COLOR_BLUE
 
@@ -87,8 +87,8 @@ class Controller:
         vision_data = sim.get_raw_vision(sim.fly.name)
         im = np.concatenate([vision_data[0], vision_data[1]], axis=1)
 
-        new_mean_left, new_mean_right = self.mean_green_inside_ROI(im) 
-
+        im = self.mean_green_inside_ROI(im) 
+        """
         if np.abs(new_mean_left - self.last_mean_left) > self.th_left: 
             if self.k>0:
                 self.obstacle_at_left(sim)
@@ -103,7 +103,7 @@ class Controller:
 
         if show_ROI:
             im = self.show_ROI(sim, im)
-
+        """
         self.frames.append(im)
         return 0
 
@@ -147,7 +147,7 @@ class Controller:
         # right eye
         for x in range(self.vertm, self.vertr):
             for y_inc in range(self.widthROI):
-                im[int(round(self.f1(x+y_inc))), x] = COLOR_RED
+                im[int(round(self.f2(x+y_inc))), x] = COLOR_RED
         
         return im
     
