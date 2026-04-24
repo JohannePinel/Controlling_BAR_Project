@@ -11,6 +11,9 @@ COLOR_BLACK = [0, 0, 0]
 TURN_RIGHT = 1.25
 TURN_LEFT = 1/TURN_RIGHT
 
+B_LEFT = 440
+B_RIGHT = 240
+
 class Controller:
     def __init__(self, sim: MiniprojectSimulation, threshold_obstacle, mode="normal", pitch_weight=410):
         # you may also implement your own turning controller
@@ -35,8 +38,8 @@ class Controller:
         # param ROI
         self.al = -0.22
         self.ar = 0.22
-        self.bl = 440+self.pitch*self.pitch_weight
-        self.br = 240+self.pitch*self.pitch_weight
+        self.bl = B_LEFT
+        self.br = B_RIGHT
 
         self.vertll = 280
         self.vertlm = 375
@@ -66,12 +69,11 @@ class Controller:
 
     def step(self, sim: MiniprojectSimulation):
         self.count += 1
-
-        if self.count % 750 == 0:
-                self.pitch = self.detect_slope_proprioceptive(sim)
             
         if self.count % 200 == 0:
             self.color_vision(sim)
+            self.pitch = self.detect_slope_proprioceptive(sim)
+            self.adapts_ROI_to_slope() 
             
             if self.mode == "tuning ROI" or self.mode == "tuning slope":
                 self.show_ROI(sim, self.frames[-1], left=255, right=255, fullfill=True)
@@ -107,13 +109,14 @@ class Controller:
             for x in range(self.vertll, self.vertlm):
                 for y_inc in range(self.widthROI):
                     if fullfill or (y_inc == 0 or y_inc == self.widthROI-1):
-                        im[int(round(self.f1(x-y_inc))), x] = [min(left, 255), 0, 0]
+                        # the min are here to ensure we stay in the frame whose shape is 512x900
+                        im[min(511,int(round(self.f1(x-y_inc)))), x] = [min(left, 255), 0, 0]
         # right eye
         if right:
             for x in range(self.vertrm, self.vertrr):
                 for y_inc in range(self.widthROI):
                     if fullfill or (y_inc == 0 or y_inc == self.widthROI-1):
-                        im[int(round(self.f2(x+y_inc))), x] = [min(right, 255), 0, 0]
+                        im[min(511,int(round(self.f2(x+y_inc)))), x] = [min(right, 255), 0, 0]
         return im
     
     def f1(self, x1):
@@ -207,6 +210,13 @@ class Controller:
             self.current_slope_category = "flat"
         
         return pitch
+    
+    def adapts_ROI_to_slope(self):
+        self.bl = B_LEFT + self.pitch*self.pitch_weight
+        self.br = B_RIGHT + self.pitch*self.pitch_weight
+
+        return 0
+        
     
     """
     can_walk = False
