@@ -17,6 +17,12 @@ B_RIGHT = 240
 B_FRONT = 320
 TH_FRONT = 20
 
+Y_LEFT = 380
+Y_FRONTL = 320
+Y_FRONTR = 320
+Y_RIGHT = 380
+
+
 class Controller:
     def __init__(self, sim: MiniprojectSimulation, threshold_obstacle, mode="normal", pitch_weight=410):
         # you may also implement your own turning controller
@@ -43,8 +49,29 @@ class Controller:
         self.th_left = threshold_obstacle
         self.th_front_left = threshold_obstacle
         self.th_front_right = threshold_obstacle
-        
-        # param ROI
+        self.th_line = 50
+
+        # param ROI lignes horizontales
+        self.line_y_left = Y_RIGHT
+        self.line_left_x0 = 220
+        self.line_left_x1 = 380
+
+        self.line_y_front_left = Y_FRONTL
+        self.line_front_left_x0 = 300
+        self.line_front_left_x1 = 440
+
+        self.line_y_front_right = Y_FRONTR
+        self.line_front_right_x0 = 460
+        self.line_front_right_x1 = 600
+
+        self.line_y_right = Y_LEFT
+        self.line_right_x0 = 520
+        self.line_right_x1 = 680
+
+        self.line_width = 1
+        self.window = 16
+
+        # ancien param ROI
         self.al = -0.22
         self.ar = 0.22
         # we will need the initial values of these parameters later. That's why we don't assign them directly a value 
@@ -95,10 +122,10 @@ class Controller:
             self.adapts_ROI_to_slope() 
             
             if self.mode == "tuning ROI" or self.mode == "tuning slope":
-                self.show_ROI(sim, self.frames[-1], left=255, right=255, front_left=255, front_right=255, fullfill=True)
+                self.show_ROI(sim, self.frames[-1], left=False, right=False, front_left=False, front_right=False, fullfill=True)
 
             else:
-                self.detect_mean_variation(sim)
+                self.detect_line_jump(sim)
             
         #self.ommatidia_vision(sim)
         #visualize_data_ommatidia(sim)
@@ -122,32 +149,26 @@ class Controller:
         return 0
 
     def show_ROI(self, sim: MiniprojectSimulation, im, left, right, front_left, front_right, fullfill=False):
-        
-        # left eye
-        if left:
-            for x in range(self.vertll, self.vertlm):
-                for y_inc in range(self.widthROI):
-                    if fullfill or (y_inc == 0 or y_inc == self.widthROI-1):
-                        # the min are here to ensure we stay in the frame whose shape is 512x900
-                        im[min(511,int(round(self.f1(x-y_inc)))), x] = [min(left, 255), 0, 0]
-        # right eye
-        if right:
-            for x in range(self.vertrm, self.vertrr):
-                for y_inc in range(self.widthROI):
-                    if fullfill or (y_inc == 0 or y_inc == self.widthROI-1):
-                        im[min(511,int(round(self.f2(x+y_inc)))), x] = [min(right, 255), 0, 0]
-        # in front left
-        if front_left:
-            for x in range(self.vertml, self.vertml_mid):
-                for y_inc in range(self.thf):
-                    if fullfill or (y_inc == 0 or y_inc == self.thf-1):
-                        im[min(511, int(round(self.bf + y_inc))), x] = [min(front_left, 255), 0, 0]
-        # in front right
-        if front_right:
-            for x in range(self.vertml_mid, self.vertmr):
-                for y_inc in range(self.thf):
-                    if fullfill or (y_inc == 0 or y_inc == self.thf-1):
-                        im[min(511, int(round(self.bf + y_inc))), x] = [min(front_right, 255), 0, 0]
+        # left line
+        color_left = [255, 0, 0] if left else [0, 0, 0]
+        for x in range(self.line_left_x0, self.line_left_x1):
+            im[self.line_y_left, x] = color_left
+
+        # front-left line
+        color_front_left = [255, 0, 0] if front_left else [0, 0, 0]
+        for x in range(self.line_front_left_x0, self.line_front_left_x1):
+            im[self.line_y_front_left, x] = color_front_left
+
+        # front-right line
+        color_front_right = [255, 0, 0] if front_right else [0, 0, 0]
+        for x in range(self.line_front_right_x0, self.line_front_right_x1):
+            im[self.line_y_front_right, x] = color_front_right
+
+        # right line
+        color_right = [255, 0, 0] if right else [0, 0, 0]
+        for x in range(self.line_right_x0, self.line_right_x1):
+            im[self.line_y_right, x] = color_right
+
         return im
     
     def f1(self, x1):
@@ -155,74 +176,61 @@ class Controller:
     def f2(self, x1):
         return (self.ar*x1 + self.br)
     
-    def detect_mean_variation(self, sim: MiniprojectSimulation):
+    def detect_line_jump(self, sim: MiniprojectSimulation):
         im = self.frames[-1]
-        new_mean_left, new_mean_right, new_mean_front_left, new_mean_front_right = self.mean_green_inside_ROI(im)
 
-        if np.abs(new_mean_left - self.last_mean_left) > self.th_left:
-            self.obstacle_at_left(sim, im, new_mean_left)
-            self.last_mean_left = new_mean_left
+        detected_left = self.detect_line_jump_ROI(im, self.line_y_left, self.line_left_x0, self.line_left_x1)
+        detected_front_left = self.detect_line_jump_ROI(im, self.line_y_front_left, self.line_front_left_x0, self.line_front_left_x1)
+        detected_front_right = self.detect_line_jump_ROI(im, self.line_y_front_right, self.line_front_right_x0, self.line_front_right_x1)
+        detected_right = self.detect_line_jump_ROI(im, self.line_y_right, self.line_right_x0, self.line_right_x1)
 
-        if np.abs(new_mean_right - self.last_mean_right) > self.th_right:
-            self.obstacle_at_right(sim, im, new_mean_right)
-            self.last_mean_right = new_mean_right
+        self.show_ROI(
+            sim,
+            im,
+            left=detected_left,
+            right=detected_right,
+            front_left=detected_front_left,
+            front_right=detected_front_right,
+            fullfill=True,
+        )
 
-        if np.abs(new_mean_front_left - self.last_mean_front_left) > self.th_front_left:
-            self.obstacle_at_front_left(sim, im, new_mean_front_left)
-            self.last_mean_front_left = new_mean_front_left
+        return detected_left, detected_front_left, detected_front_right, detected_right
 
-        if np.abs(new_mean_front_right - self.last_mean_front_right) > self.th_front_right:
-            self.obstacle_at_front_right(sim, im, new_mean_front_right)
-            self.last_mean_front_right = new_mean_front_right
-
-        return new_mean_left, new_mean_right, new_mean_front_left, new_mean_front_right
-
-    def mean_green_inside_ROI(self, im):
+    def detect_line_jump_ROI(self, im, y, x0, x1):
+        green_line = im[y, x0:x1, GREEN].astype(int)
+        red_line = im[y, x0:x1, RED].astype(int)
         
-        mean_green_ROI_left = 0
-        mean_green_ROI_right = 0
-        mean_green_ROI_front_left = 0
-        mean_green_ROI_front_right = 0
-        count_left = 0
-        count_right = 0
-        count_front_left = 0
-        count_front_right = 0
-        
-        # Left eye
-        for x in range(self.vertll, self.vertlm):
-            for y_inc in range(self.widthROI):
-                y = int(round(self.f1(x - y_inc)))
-                if 0 <= y < im.shape[0] and im[y, x, RED]<1:   
-                    count_left += 1
-                    # mean_green_ROI_left += im[y, x, GREEN]  
-                    mean_green_ROI_left += (im[y, x, GREEN]-mean_green_ROI_left)/count_left # directly constitute the mean
+        # If any pixel has non-zero red channel it's that the foot is in the ROI
+        if np.any(red_line > 60):
+            return False
+            
+        if green_line.shape[0] < 10:  # need enough pixels to check stability on both sides
+            return False
 
-        # Right eye
-        for x in range(self.vertrm, self.vertrr):
-            for y_inc in range(self.widthROI):
-                y = int(round(self.f2(x + y_inc)))
-                if 0 <= y < im.shape[0] and im[y, x, RED]<1:    
-                    count_right += 1
-                    # mean_green_ROI_right += im[y, x, GREEN] 
-                    mean_green_ROI_right += (im[y, x, GREEN]-mean_green_ROI_right)/count_right # directly constitute the mean
-        
-        # In front left
-        for x in range(self.vertml, self.vertml_mid):
-            for y_inc in range(self.widthROI):
-                y = int(round(self.bf + y_inc))
-                if 0 <= y < im.shape[0] and im[y, x, RED]<1:    
-                    count_front_left += 1
-                    mean_green_ROI_front_left += (im[y, x, GREEN]-mean_green_ROI_front_left)/count_front_left
-        
-        # In front right
-        for x in range(self.vertml_mid, self.vertmr):
-            for y_inc in range(self.widthROI):
-                y = int(round(self.bf + y_inc))
-                if 0 <= y < im.shape[0] and im[y, x, RED]<1:    
-                    count_front_right += 1
-                    mean_green_ROI_front_right += (im[y, x, GREEN]-mean_green_ROI_front_right)/count_front_right
-        
-        return mean_green_ROI_left, mean_green_ROI_right, mean_green_ROI_front_left, mean_green_ROI_front_right
+        for i in range(len(green_line) - 3):
+            left_value = green_line[i]
+            right_value = green_line[i + 3]
+            if abs(right_value - left_value) <= self.th_line:
+                continue
+
+            left_start = max(0, i - self.window)
+            right_end = min(len(green_line), i + 3 + self.window)
+
+            left_segment = green_line[left_start:i + 1]
+            right_segment = green_line[i + 3:right_end]
+
+            if len(left_segment) < 3 or len(right_segment) < 3:
+                continue
+
+            left_std = np.std(left_segment)
+            right_std = np.std(right_segment)
+            left_mean = np.mean(left_segment)
+            right_mean = np.mean(right_segment)
+
+            if left_std < 10 and right_std < 10 and abs(left_mean - right_mean) > self.th_line:
+                return True
+
+        return False
     
     def obstacle_at_left(self, sim: MiniprojectSimulation, im, new_mean_left):
         self.show_ROI(sim, im, left=new_mean_left, right=False, front_left=0, front_right=0, fullfill=True)
@@ -266,9 +274,11 @@ class Controller:
         return pitch
     
     def adapts_ROI_to_slope(self):
-        self.bl = B_LEFT + self.pitch*self.pitch_weight
-        self.br = B_RIGHT + self.pitch*self.pitch_weight
-        self.bf = B_FRONT + self.pitch*self.pitch_weight
+
+        self.line_y_left = int(Y_RIGHT + self.pitch*self.pitch_weight)
+        self.line_y_front_left = int(Y_FRONTL + self.pitch*self.pitch_weight)
+        self.line_y_front_right = int(Y_FRONTR + self.pitch*self.pitch_weight)
+        self.line_y_right = int(Y_LEFT + self.pitch*self.pitch_weight)
 
         return 0
         
