@@ -17,10 +17,10 @@ B_RIGHT = 240
 B_FRONT = 320
 TH_FRONT = 20
 
-Y_LEFT = 380
+Y_LEFT = 360
 Y_FRONTL = 320
 Y_FRONTR = 320
-Y_RIGHT = 380
+Y_RIGHT = 360
 
 
 class Controller:
@@ -41,54 +41,46 @@ class Controller:
 
         # param obstacles
         self.count = 0
-        self.last_mean_left = 128
-        self.last_mean_right = 128
-        self.last_mean_front_left = 128
-        self.last_mean_front_right = 128
-        self.th_right = threshold_obstacle
-        self.th_left = threshold_obstacle
-        self.th_front_left = threshold_obstacle
-        self.th_front_right = threshold_obstacle
         self.th_line = 50
+        self.window = 16
 
-        # param ROI lignes horizontales
+        # param ROI lignes horizontales (divisées en deux chacune)
         self.line_y_left = Y_RIGHT
-        self.line_left_x0 = 220
-        self.line_left_x1 = 380
+        self.line_left1_x0 = 220
+        self.line_left1_x1 = 300
+        self.line_left2_x0 = 300
+        self.line_left2_x1 = 380
 
         self.line_y_front_left = Y_FRONTL
-        self.line_front_left_x0 = 300
-        self.line_front_left_x1 = 440
+        self.line_front_left1_x0 = 300
+        self.line_front_left1_x1 = 370
+        self.line_front_left2_x0 = 370
+        self.line_front_left2_x1 = 440
+        self.line_front_left3_x0 = 335
+        self.line_front_left3_x1 = 405
 
         self.line_y_front_right = Y_FRONTR
-        self.line_front_right_x0 = 460
-        self.line_front_right_x1 = 600
+        self.line_front_right1_x0 = 460
+        self.line_front_right1_x1 = 530
+        self.line_front_right2_x0 = 530
+        self.line_front_right2_x1 = 600
+        self.line_front_right3_x0 = 495
+        self.line_front_right3_x1 = 565
 
         self.line_y_right = Y_LEFT
-        self.line_right_x0 = 520
-        self.line_right_x1 = 680
-
-        self.line_width = 1
-        self.window = 16
+        self.line_right1_x0 = 520
+        self.line_right1_x1 = 600
+        self.line_right2_x0 = 600
+        self.line_right2_x1 = 680
 
         # ancien param ROI
         self.al = -0.22
         self.ar = 0.22
         # we will need the initial values of these parameters later. That's why we don't assign them directly a value 
-        self.thf = TH_FRONT
         self.bl = B_LEFT
         self.br = B_RIGHT
         self.bf = B_FRONT
-        
-        self.vertll = 280
-        self.vertlm = 400
         self.vertml = 400
-        self.vertml_mid = 450
-        self.vertmr = 500
-        self.vertrm = 500
-        self.vertrr = 620
-
-        self.widthROI = 75
 
         # mode 
         self.mode = mode
@@ -96,18 +88,8 @@ class Controller:
         # inhibitateur de marche
         self.k = 1
 
-        # param ommatidia 
-        self.limR = 75
-        self.limH = 125
-        self.limM = 250
-        self.limB = 375
-
         # var ommatidia
-        self.intensityH = 0
-        self.intensityB = 0
         self.ratio = [0, 0, 0]
-        self.last_ratios = 6 
-
 
 
     def step(self, sim: MiniprojectSimulation):
@@ -122,15 +104,10 @@ class Controller:
             self.adapts_ROI_to_slope() 
             
             if self.mode == "tuning ROI" or self.mode == "tuning slope":
-                self.show_ROI(sim, self.frames[-1], left=False, right=False, front_left=False, front_right=False, fullfill=True)
+                self.show_ROI(sim, self.frames[-1], left1=False, left2=False, front_left1=False, front_left2=False, front_left3=False, front_right1=False, front_right2=False, front_right3=False, right1=False, right2=False, fullfill=True)
 
             else:
                 self.detect_line_jump(sim)
-            
-        #self.ommatidia_vision(sim)
-        #visualize_data_ommatidia(sim)
-        #olfaction = sim.get_olfaction(sim.fly.name)
-
 
         drives = np.array([1.0*self.k, 1.0/self.k])  
         joint_angles, adhesion = self.turning_controller.step(drives)
@@ -148,53 +125,87 @@ class Controller:
 
         return 0
 
-    def show_ROI(self, sim: MiniprojectSimulation, im, left, right, front_left, front_right, fullfill=False):
-        # left line
-        color_left = [255, 0, 0] if left else [0, 0, 0]
-        for x in range(self.line_left_x0, self.line_left_x1):
-            im[self.line_y_left, x] = color_left
+    def show_ROI(self, sim: MiniprojectSimulation, im, left1, left2, front_left1, front_left2, front_left3, front_right1, front_right2, front_right3, right1, right2, fullfill=False):
+        # left lines
+        color_left1 = [255, 0, 0] if left1 else [0, 0, 0]
+        for x in range(self.line_left1_x0, self.line_left1_x1):
+            im[self.line_y_left, x] = color_left1
 
-        # front-left line
-        color_front_left = [255, 0, 0] if front_left else [0, 0, 0]
-        for x in range(self.line_front_left_x0, self.line_front_left_x1):
-            im[self.line_y_front_left, x] = color_front_left
+        color_left2 = [255, 0, 0] if left2 else [0, 0, 0]
+        for x in range(self.line_left2_x0, self.line_left2_x1):
+            im[self.line_y_left, x] = color_left2
 
-        # front-right line
-        color_front_right = [255, 0, 0] if front_right else [0, 0, 0]
-        for x in range(self.line_front_right_x0, self.line_front_right_x1):
-            im[self.line_y_front_right, x] = color_front_right
 
-        # right line
-        color_right = [255, 0, 0] if right else [0, 0, 0]
-        for x in range(self.line_right_x0, self.line_right_x1):
-            im[self.line_y_right, x] = color_right
+        # front-left lines
+        color_front_left1 = [255, 0, 0] if front_left1 else [0, 0, 0]
+        for x in range(self.line_front_left1_x0, self.line_front_left1_x1):
+            im[self.line_y_front_left, x] = color_front_left1
+
+        color_front_left2 = [255, 0, 0] if front_left2 else [0, 0, 0]
+        for x in range(self.line_front_left2_x0, self.line_front_left2_x1):
+            im[self.line_y_front_left, x] = color_front_left2
+        
+        color_front_left3 = [255, 0, 0] if front_left3 else [0, 0, 0]
+        for x in range(self.line_front_left3_x0, self.line_front_left3_x1):
+            im[self.line_y_front_left, x] = color_front_left3
+
+
+        # front-right lines
+        color_front_right1 = [255, 0, 0] if front_right1 else [0, 0, 0]
+        for x in range(self.line_front_right1_x0, self.line_front_right1_x1):
+            im[self.line_y_front_right, x] = color_front_right1
+
+        color_front_right2 = [255, 0, 0] if front_right2 else [0, 0, 0]
+        for x in range(self.line_front_right2_x0, self.line_front_right2_x1):
+            im[self.line_y_front_right, x] = color_front_right2
+            
+        color_front_right3 = [255, 0, 0] if front_right3 else [0, 0, 0]
+        for x in range(self.line_front_right3_x0, self.line_front_right3_x1):
+            im[self.line_y_front_right, x] = color_front_right3
+
+
+        # right lines
+        color_right1 = [255, 0, 0] if right1 else [0, 0, 0]
+        for x in range(self.line_right1_x0, self.line_right1_x1):
+            im[self.line_y_right, x] = color_right1
+
+        color_right2 = [255, 0, 0] if right2 else [0, 0, 0]
+        for x in range(self.line_right2_x0, self.line_right2_x1):
+            im[self.line_y_right, x] = color_right2
 
         return im
-    
-    def f1(self, x1):
-        return (self.al*x1 + self.bl)
-    def f2(self, x1):
-        return (self.ar*x1 + self.br)
     
     def detect_line_jump(self, sim: MiniprojectSimulation):
         im = self.frames[-1]
 
-        detected_left = self.detect_line_jump_ROI(im, self.line_y_left, self.line_left_x0, self.line_left_x1)
-        detected_front_left = self.detect_line_jump_ROI(im, self.line_y_front_left, self.line_front_left_x0, self.line_front_left_x1)
-        detected_front_right = self.detect_line_jump_ROI(im, self.line_y_front_right, self.line_front_right_x0, self.line_front_right_x1)
-        detected_right = self.detect_line_jump_ROI(im, self.line_y_right, self.line_right_x0, self.line_right_x1)
+        detected_left1 = self.detect_line_jump_ROI(im, self.line_y_left, self.line_left1_x0, self.line_left1_x1)
+        detected_left2 = self.detect_line_jump_ROI(im, self.line_y_left, self.line_left2_x0, self.line_left2_x1)
+        detected_front_left1 = self.detect_line_jump_ROI(im, self.line_y_front_left, self.line_front_left1_x0, self.line_front_left1_x1)
+        detected_front_left2 = self.detect_line_jump_ROI(im, self.line_y_front_left, self.line_front_left2_x0, self.line_front_left2_x1)
+        detected_front_left3 = self.detect_line_jump_ROI(im, self.line_y_front_left, self.line_front_left3_x0, self.line_front_left3_x1)
+        detected_front_right1 = self.detect_line_jump_ROI(im, self.line_y_front_right, self.line_front_right1_x0, self.line_front_right1_x1)
+        detected_front_right2 = self.detect_line_jump_ROI(im, self.line_y_front_right, self.line_front_right2_x0, self.line_front_right2_x1)
+        detected_front_right3 = self.detect_line_jump_ROI(im, self.line_y_front_right, self.line_front_right3_x0, self.line_front_right3_x1)
+        detected_right1 = self.detect_line_jump_ROI(im, self.line_y_right, self.line_right1_x0, self.line_right1_x1)
+        detected_right2 = self.detect_line_jump_ROI(im, self.line_y_right, self.line_right2_x0, self.line_right2_x1)
 
         self.show_ROI(
             sim,
             im,
-            left=detected_left,
-            right=detected_right,
-            front_left=detected_front_left,
-            front_right=detected_front_right,
+            left1=detected_left1,
+            left2=detected_left2,
+            front_left1=detected_front_left1,
+            front_left2=detected_front_left2,
+            front_left3=detected_front_left3,
+            front_right1=detected_front_right1,
+            front_right2=detected_front_right2,
+            front_right3=detected_front_right3,
+            right1=detected_right1,
+            right2=detected_right2,
             fullfill=True,
         )
 
-        return detected_left, detected_front_left, detected_front_right, detected_right
+        return detected_left1, detected_left2, detected_front_left1, detected_front_left2, detected_front_left3, detected_front_right1, detected_front_right2, detected_front_right3, detected_right1, detected_right2
 
     def detect_line_jump_ROI(self, im, y, x0, x1):
         green_line = im[y, x0:x1, GREEN].astype(int)
@@ -232,22 +243,6 @@ class Controller:
 
         return False
     
-    def obstacle_at_left(self, sim: MiniprojectSimulation, im, new_mean_left):
-        self.show_ROI(sim, im, left=new_mean_left, right=False, front_left=0, front_right=0, fullfill=True)
-        return 0
-    
-    def obstacle_at_right(self, sim: MiniprojectSimulation, im, new_mean_right):
-        self.show_ROI(sim, im, left=False, right=new_mean_right, front_left=0, front_right=0, fullfill=True)
-        return 0
-    
-    def obstacle_at_front_left(self, sim: MiniprojectSimulation, im, new_mean_front_left):
-        self.show_ROI(sim, im, left=False, right=False, front_left=new_mean_front_left, front_right=0, fullfill=True)
-        return 0
-    
-    def obstacle_at_front_right(self, sim: MiniprojectSimulation, im, new_mean_front_right):
-        self.show_ROI(sim, im, left=False, right=False, front_left=0, front_right=new_mean_front_right, fullfill=True)
-        return 0
-    
     def detect_slope_proprioceptive(self, sim: MiniprojectSimulation):
         from scipy.spatial.transform import Rotation
         
@@ -281,126 +276,3 @@ class Controller:
         self.line_y_right = int(Y_LEFT + self.pitch*self.pitch_weight)
 
         return 0
-        
-    
-    """
-    can_walk = False
-
-    def stops_analysing(self, sim: MiniprojectSimulation):
-        self.can_walk = True
-        return 0
-    
-    def starts_analysing(self, sim: MiniprojectSimulation):
-        self.can_walk = False
-        return 0
-    
-    def looks_for_bananas(self, sim: MiniprojectSimulation):
-        self.can_walk = False
-
-        return 0
-    
-    def detects_horizon_while_stopped(self, sim: MiniprojectSimulation, screenshot):
-        self.can_walk = False
-
-        height_of_horizon = 0
-        for i in range(5):
-            if screenshot[261+i, 100][1] == 128:
-                height_of_horizon = 261+i
-                break
-        self.can_walk = True
-        return height_of_horizon
-
-    def checks_for_ostacles(self):
-        self.intensities = [] # length = nb of pixels checked ; (r, g, b) for each pixel
-        self.obstacle_pos = 0 # on the hizontal axis at self.height_obstacles 
-
-        sum_green_intensities = 128
-
-        for i in range(self.frame_width - (2*self.starts_scanning)): # frames are 900 wide
-            pixel = self.frames[-1][self.height_obstacles, i]
-
-            if self.worth_analysing(sim, pixel, i)[1]: # make sure we are not in the black spot
-                self.intensities.append(self.frames[-1][self.height_obstacles, self.starts_scanning+i])
-
-            if pixel[GREEN] >= (sum_green_intensities/(i+1)): 
-                self.frames[-1][self.height_obstacles, i] = [128, 0, 0] 
-            else:
-                sum_green_intensities += pixel[GREEN]
-            
-            if self.worth_analysing(sim, pixel, i)[0]: # enough datas to have a good mean to compare the pixel to
-                if np.abs(self.intensities[-1][GREEN] - np.mean(self.intensities[:-1][GREEN] )) > self.different_objects: 
-                    self.obstacle_pos = (self.starts_scanning + i)
-                    self.frames[-1][self.height_obstacles, self.starts_scanning + i] = [255, 0, 0] # for debugg
-
-                    break 
-            
-        print("self.intensities[-1]", self.intensities[-1])
-        print("self.intensities[-1][GREEN]", self.intensities[-1][GREEN])
-        print("diff with mean", np.abs(self.intensities[-1][GREEN] - np.mean(self.intensities[:-1][GREEN])) )
-        
-        return 0
-        """
-    
-    def checks_height(self, sim: MiniprojectSimulation):
-
-        for i in range(900): # frames are 900 wide
-            if np.any(self.frames[-1][self.height_obstacles, i] != [255, 0, 0]):
-                self.frames[-1][self.height_obstacles, i] = [0, 0, 128] 
-        return 0
-    
-
-    def ommatidia_vision(self, sim: MiniprojectSimulation):
-        vision_data = sim.get_ommatidia_readouts(sim.fly.name)
-        retina = sim.world.fly_lookup[sim.fly.name].retina
-        im = np.concatenate(
-            [retina.hex_pxls_to_human_readable(eye.max(-1), color_8bit=True)
-            for eye in vision_data],
-            axis=1,
-        )
-        self.tilt(sim, im)
-        self.frames.append(self.apply_grid(sim, im))
-        return 0
-    
-    def visualize_data_ommatidia(self, sim: MiniprojectSimulation):
-        vision_data = sim.get_ommatidia_readouts(sim.fly.name)
-        retina = sim.world.fly_lookup[sim.fly.name].retina
-        im = np.concatenate(
-            [retina.hex_pxls_to_human_readable(eye.max(-1), color_8bit=True)
-            for eye in vision_data],
-            axis=1,
-        )
-        im[:, 675:900] = 0
-        im[275, :] = 0
-        im[300, 25:] = 0
-        im[325, 50:] = 0
-        im[350, 75:] = 0
-        im[375, 100:] = 0
-        self.frames.append(im)
-        return 0
-    
-    def apply_grid(self, sim: MiniprojectSimulation, im):
-        im[self.limM, :] = 0
-        im[self.limH, 0:self.limR] = 0
-        im[self.limB, 0:self.limR] = 0
-
-        im[100:400, self.limR] = 0
-
-        return im
-    
-    def tilt(self, sim: MiniprojectSimulation, im):
-        for x in range(self.limR):
-            for y in (self.limH , self.limM):
-                self.intensityH += 0.01*im[y, x]
-            
-            for y in (self.limM , self.limB):
-                self.intensityB += 0.01*im[y, x]
-        
-        self.ratio.append([self.intensityH, self.intensityB, self.intensityH/(self.intensityB+1e-5)])
-        self.intensityH = 0
-        self.intensityB = 0
-
-        return 0
-
-    def last_ratios_mean(self):
-        
-        return np.mean([x[2] for x in self.ratio[-self.last_ratios:]])
