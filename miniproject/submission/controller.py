@@ -2,6 +2,7 @@ import numpy as np
 from miniproject.simulation import MiniprojectSimulation
 
 GREEN = 1
+RED = 0
 
 COLOR_RED = [255, 0, 0]
 COLOR_GREEN = [0, 255, 0]
@@ -13,7 +14,7 @@ TURN_LEFT = 1/TURN_RIGHT
 
 B_LEFT = 435
 B_RIGHT = 240
-B_FRONT = 310
+B_FRONT = 320
 TH_FRONT = 20
 
 class Controller:
@@ -36,10 +37,12 @@ class Controller:
         self.count = 0
         self.last_mean_left = 128
         self.last_mean_right = 128
-        self.last_mean_front = 128
+        self.last_mean_front_left = 128
+        self.last_mean_front_right = 128
         self.th_right = threshold_obstacle
         self.th_left = threshold_obstacle
-        self.th_front = threshold_obstacle
+        self.th_front_left = threshold_obstacle
+        self.th_front_right = threshold_obstacle
         
         # param ROI
         self.al = -0.22
@@ -53,6 +56,7 @@ class Controller:
         self.vertll = 280
         self.vertlm = 400
         self.vertml = 400
+        self.vertml_mid = 450
         self.vertmr = 500
         self.vertrm = 500
         self.vertrr = 620
@@ -91,7 +95,7 @@ class Controller:
             self.adapts_ROI_to_slope() 
             
             if self.mode == "tuning ROI" or self.mode == "tuning slope":
-                self.show_ROI(sim, self.frames[-1], left=255, right=255, front = 255, fullfill=True)
+                self.show_ROI(sim, self.frames[-1], left=255, right=255, front_left=255, front_right=255, fullfill=True)
 
             else:
                 self.detect_mean_variation(sim)
@@ -117,7 +121,7 @@ class Controller:
 
         return 0
 
-    def show_ROI(self, sim: MiniprojectSimulation, im, left, right, front, fullfill=False):
+    def show_ROI(self, sim: MiniprojectSimulation, im, left, right, front_left, front_right, fullfill=False):
         
         # left eye
         if left:
@@ -132,11 +136,18 @@ class Controller:
                 for y_inc in range(self.widthROI):
                     if fullfill or (y_inc == 0 or y_inc == self.widthROI-1):
                         im[min(511,int(round(self.f2(x+y_inc)))), x] = [min(right, 255), 0, 0]
-        # in front
-        for x in range(self.vertml, self.vertmr):
+        # in front left
+        if front_left:
+            for x in range(self.vertml, self.vertml_mid):
                 for y_inc in range(self.thf):
                     if fullfill or (y_inc == 0 or y_inc == self.thf-1):
-                        im[min(511, int(round(self.bf + y_inc))), x] = [min(front, 255), 0, 0]
+                        im[min(511, int(round(self.bf + y_inc))), x] = [min(front_left, 255), 0, 0]
+        # in front right
+        if front_right:
+            for x in range(self.vertml_mid, self.vertmr):
+                for y_inc in range(self.thf):
+                    if fullfill or (y_inc == 0 or y_inc == self.thf-1):
+                        im[min(511, int(round(self.bf + y_inc))), x] = [min(front_right, 255), 0, 0]
         return im
     
     def f1(self, x1):
@@ -146,7 +157,7 @@ class Controller:
     
     def detect_mean_variation(self, sim: MiniprojectSimulation):
         im = self.frames[-1]
-        new_mean_left, new_mean_right, new_mean_front = self.mean_green_inside_ROI(im)
+        new_mean_left, new_mean_right, new_mean_front_left, new_mean_front_right = self.mean_green_inside_ROI(im)
 
         if np.abs(new_mean_left - self.last_mean_left) > self.th_left:
             self.obstacle_at_left(sim, im, new_mean_left)
@@ -156,26 +167,32 @@ class Controller:
             self.obstacle_at_right(sim, im, new_mean_right)
             self.last_mean_right = new_mean_right
 
-        if np.abs(new_mean_front - self.last_mean_front) > self.th_front:
-            self.obstacle_at_front(sim, im, new_mean_front)
-            self.last_mean_front = new_mean_front
+        if np.abs(new_mean_front_left - self.last_mean_front_left) > self.th_front_left:
+            self.obstacle_at_front_left(sim, im, new_mean_front_left)
+            self.last_mean_front_left = new_mean_front_left
 
-        return new_mean_left, new_mean_right, new_mean_front
+        if np.abs(new_mean_front_right - self.last_mean_front_right) > self.th_front_right:
+            self.obstacle_at_front_right(sim, im, new_mean_front_right)
+            self.last_mean_front_right = new_mean_front_right
+
+        return new_mean_left, new_mean_right, new_mean_front_left, new_mean_front_right
 
     def mean_green_inside_ROI(self, im):
         
         mean_green_ROI_left = 0
         mean_green_ROI_right = 0
-        mean_green_ROI_front = 0
+        mean_green_ROI_front_left = 0
+        mean_green_ROI_front_right = 0
         count_left = 0
         count_right = 0
-        count_front = 0
+        count_front_left = 0
+        count_front_right = 0
         
         # Left eye
         for x in range(self.vertll, self.vertlm):
             for y_inc in range(self.widthROI):
                 y = int(round(self.f1(x - y_inc)))
-                if 0 <= y < im.shape[0]:   
+                if 0 <= y < im.shape[0] and im[y, x, RED]<1:   
                     count_left += 1
                     # mean_green_ROI_left += im[y, x, GREEN]  
                     mean_green_ROI_left += (im[y, x, GREEN]-mean_green_ROI_left)/count_left # directly constitute the mean
@@ -184,41 +201,43 @@ class Controller:
         for x in range(self.vertrm, self.vertrr):
             for y_inc in range(self.widthROI):
                 y = int(round(self.f2(x + y_inc)))
-                if 0 <= y < im.shape[0]:    
+                if 0 <= y < im.shape[0] and im[y, x, RED]<1:    
                     count_right += 1
                     # mean_green_ROI_right += im[y, x, GREEN] 
                     mean_green_ROI_right += (im[y, x, GREEN]-mean_green_ROI_right)/count_right # directly constitute the mean
         
-        # In front
-        for x in range(self.vertml, self.vertmr):
+        # In front left
+        for x in range(self.vertml, self.vertml_mid):
             for y_inc in range(self.widthROI):
                 y = int(round(self.bf + y_inc))
-                if 0 <= y < im.shape[0]:    
-                    count_front += 1
-                    # mean_green_ROI_front += im[y, x, GREEN]  
-                    mean_green_ROI_front += (im[y, x, GREEN]-mean_green_ROI_front)/count_front # directly constitute the mean
+                if 0 <= y < im.shape[0] and im[y, x, RED]<1:    
+                    count_front_left += 1
+                    mean_green_ROI_front_left += (im[y, x, GREEN]-mean_green_ROI_front_left)/count_front_left
         
-        # only if we don't use the trick 
-        """
-        if count_left > 0:
-            mean_green_ROI_left = mean_green_ROI_left / count_left
-        if count_right > 0:
-            mean_green_ROI_right = mean_green_ROI_right / count_right
-        if count_front > 0:            
-            mean_green_ROI_front = mean_green_ROI_front / count_front
-        """
-        return mean_green_ROI_left, mean_green_ROI_right, mean_green_ROI_front
+        # In front right
+        for x in range(self.vertml_mid, self.vertmr):
+            for y_inc in range(self.widthROI):
+                y = int(round(self.bf + y_inc))
+                if 0 <= y < im.shape[0] and im[y, x, RED]<1:    
+                    count_front_right += 1
+                    mean_green_ROI_front_right += (im[y, x, GREEN]-mean_green_ROI_front_right)/count_front_right
+        
+        return mean_green_ROI_left, mean_green_ROI_right, mean_green_ROI_front_left, mean_green_ROI_front_right
     
     def obstacle_at_left(self, sim: MiniprojectSimulation, im, new_mean_left):
-        self.show_ROI(sim, im, left=new_mean_left, right=False, front = 0, fullfill=True)
+        self.show_ROI(sim, im, left=new_mean_left, right=False, front_left=0, front_right=0, fullfill=True)
         return 0
     
     def obstacle_at_right(self, sim: MiniprojectSimulation, im, new_mean_right):
-        self.show_ROI(sim, im, left=False, right=new_mean_right, front = 0, fullfill=True)
+        self.show_ROI(sim, im, left=False, right=new_mean_right, front_left=0, front_right=0, fullfill=True)
         return 0
     
-    def obstacle_at_front(self, sim: MiniprojectSimulation, im, new_mean_front):
-        self.show_ROI(sim, im, left=False, right=False, front=new_mean_front, fullfill=True)
+    def obstacle_at_front_left(self, sim: MiniprojectSimulation, im, new_mean_front_left):
+        self.show_ROI(sim, im, left=False, right=False, front_left=new_mean_front_left, front_right=0, fullfill=True)
+        return 0
+    
+    def obstacle_at_front_right(self, sim: MiniprojectSimulation, im, new_mean_front_right):
+        self.show_ROI(sim, im, left=False, right=False, front_left=0, front_right=new_mean_front_right, fullfill=True)
         return 0
     
     def detect_slope_proprioceptive(self, sim: MiniprojectSimulation):
