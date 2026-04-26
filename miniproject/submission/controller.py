@@ -1,8 +1,10 @@
 import numpy as np
 from miniproject.simulation import MiniprojectSimulation
 
-GREEN = 1
+
 RED = 0
+GREEN = 1
+BLUE = 2
 
 COLOR_RED = [255, 0, 0]
 COLOR_GREEN = [0, 255, 0]
@@ -27,7 +29,8 @@ Y_RIGHT = 360
 
 CONFIDENT = 1.0
 SUSPICIOUS = 0.5
-
+TURN_COEFF = 4
+FLIPPED_FOR_SURE = 200
 
 class Controller:
     def __init__(self, sim: MiniprojectSimulation, threshold_line = 40, mode="normal", pitch_weight=1):
@@ -35,7 +38,7 @@ class Controller:
         self.turning_controller = TurningController(sim.timestep)
 
         # general parameters
-        self.speed = CONFIDENT
+        self.speed = SUSPICIOUS
         self.count = 0
         self.mode = mode
         
@@ -52,6 +55,7 @@ class Controller:
         self.pitch_weight = pitch_weight
         self.th_danger_upsidedown = 0.45
         self.th_slope_category = 0.08
+        self.maybe_flipped = 0
 
         # param obstacles
         self.th_line = threshold_line
@@ -124,7 +128,11 @@ class Controller:
                 print("!! Retournement imminent !!")
             
         if self.count % VISION_RATE == 0:
-            self.color_vision(sim)
+            im = self.color_vision(sim)
+
+            if self.is_flipped(sim, im):
+                self.recover_fly(im)
+
             self.adapts_ROI_to_slope() 
             
             if self.mode == "tuning ROI" or self.mode == "tuning slope":
@@ -132,7 +140,7 @@ class Controller:
 
             else:
                 self.detect_line_jump(sim)
-
+                self.reflexion_obstacle()
 
         drives = np.array([self.speed*self.k, self.speed/self.k])  
         joint_angles, adhesion = self.turning_controller.step(drives)
@@ -148,58 +156,58 @@ class Controller:
         im = np.concatenate([vision_data[0], vision_data[1]], axis=1)
         self.frames.append(im)
 
-        return 0
+        return im
 
     class ROI:
         def __init__(self, color_left_segment, color_right_segment):
             self.color_left_segment = color_left_segment
             self.color_right_segment = color_right_segment
     
-    def show_ROI(self, sim: MiniprojectSimulation, im, left1, left2, front_left1, front_left2, front_left3, front_right1, front_right2, front_right3, right1, right2, fullfill=False):
+    def show_ROI(self, sim: MiniprojectSimulation, im, left1, left2, front_left1, front_left2, front_left3, front_right1, front_right2, front_right3, right1, right2, color=COLOR_BLACK):
         # left lines
-        color_left1 = COLOR_RED if left1 else COLOR_BLACK
+        color_left1 = COLOR_RED if left1 else color
         for x in range(self.line_left1_x0, self.line_left1_x1):
             im[self.line_y_left, x] = color_left1
 
-        color_left2 = COLOR_RED if left2 else COLOR_BLACK
+        color_left2 = COLOR_RED if left2 else color
         for x in range(self.line_left2_x0, self.line_left2_x1):
             im[self.line_y_left, x] = color_left2
 
 
         # front-left lines
-        color_front_left1 = COLOR_RED if front_left1 else COLOR_BLACK
+        color_front_left1 = COLOR_RED if front_left1 else color
         for x in range(self.line_front_left1_x0, self.line_front_left1_x1):
             im[self.line_y_front_left, x] = color_front_left1
 
-        color_front_left2 = COLOR_RED if front_left2 else COLOR_BLACK
+        color_front_left2 = COLOR_RED if front_left2 else color
         for x in range(self.line_front_left2_x0, self.line_front_left2_x1):
             im[self.line_y_front_left, x] = color_front_left2
         
-        color_front_left3 = COLOR_RED if front_left3 else COLOR_BLACK 
+        color_front_left3 = COLOR_RED if front_left3 else color 
         for x in range(self.line_front_left3_x0, self.line_front_left3_x1):
             im[self.line_y_front_left, x] = color_front_left3
 
 
         # front-right lines
-        color_front_right1 = COLOR_RED if front_right1 else COLOR_BLACK
+        color_front_right1 = COLOR_RED if front_right1 else color
         for x in range(self.line_front_right1_x0, self.line_front_right1_x1):
             im[self.line_y_front_right, x] = color_front_right1
 
-        color_front_right2 = COLOR_RED if front_right2 else COLOR_BLACK
+        color_front_right2 = COLOR_RED if front_right2 else color
         for x in range(self.line_front_right2_x0, self.line_front_right2_x1):
             im[self.line_y_front_right, x] = color_front_right2
             
-        color_front_right3 = COLOR_RED if front_right3 else COLOR_BLACK
+        color_front_right3 = COLOR_RED if front_right3 else color
         for x in range(self.line_front_right3_x0, self.line_front_right3_x1):
             im[self.line_y_front_right, x] = color_front_right3
 
 
         # right lines
-        color_right1 = COLOR_RED if right1 else COLOR_BLACK
+        color_right1 = COLOR_RED if right1 else color
         for x in range(self.line_right1_x0, self.line_right1_x1):
             im[self.line_y_right, x] = color_right1
 
-        color_right2 = COLOR_RED if right2 else COLOR_BLACK
+        color_right2 = COLOR_RED if right2 else color
         for x in range(self.line_right2_x0, self.line_right2_x1):
             im[self.line_y_right, x] = color_right2
 
@@ -231,8 +239,7 @@ class Controller:
             front_right2=detected_front_right2,
             front_right3=detected_front_right3,
             right1=detected_right1,
-            right2=detected_right2,
-            fullfill=True,
+            right2=detected_right2
         )
 
         return detected_left1, detected_left2, detected_front_left1, detected_front_left2, detected_front_left3, detected_front_right1, detected_front_right2, detected_front_right3, detected_right1, detected_right2
@@ -269,7 +276,7 @@ class Controller:
             right_mean = np.mean(right_segment)
 
             if left_std < 10 and right_std < 10 and abs(left_mean - right_mean) > self.th_line:
-                self.ROIs[id_ROI] = (int(left_mean), int(right_mean), True)
+                self.ROIs[id_ROI] = (int(left_mean), int(right_mean), True) # this ROI is active <=> obstacle probably there
                 self.reflexion_obstacle()
                 return True
             else :
@@ -282,16 +289,16 @@ class Controller:
         
         # Obtenir l'orientation du thorax (premier corps = index 0)
         body_rotations = sim.get_body_rotations(sim.fly.name)
-        thorax_quat = body_rotations[0]  # quaternion du thorax
+        # Reorder MuJoCo [w, x, y, z] to SciPy [x, y, z, w]
+        thorax_quat = body_rotations[0][[1, 2, 3, 0]]
         
-        # Convertir quaternion en angles d'Euler (YAW, PITCH, ROLL)
-        # MuJoCo utilise l'ordre ZYX par défaut
+        # Convertir quaternion en angles d'Euler
         rotation = Rotation.from_quat(thorax_quat)
         euler_angles = rotation.as_euler('xyz')  # [roll, pitch, yaw]
         pitch = euler_angles[1]  # pitch ~[-0.5, 0.5]
         
         if np.abs(pitch) > self.th_danger_upsidedown :
-            self.current_slope_category == "carreful_upsidedown"
+            self.current_slope_category = "carreful_upsidedown"
         else:
             if pitch > self.th_slope_category:
                 self.current_slope_category  = "ascending"
@@ -327,18 +334,30 @@ class Controller:
     
     def reflexion_obstacle(self):
 
-        for i in [0, 1, 8, 9]: # checks first the bottom ROIs
-            if self.speed == SUSPICIOUS and self.ROIs[i][2]:
-                if i < 2 : # obstacle is at left
-                    self.k = 2 # turn right
-                else :
-                    self.k = (1/2) # turn left
-            else : 
-                self.k = 1 # no turn yet
+        for i in range(len(self.ROIs)): # when coeff == 0 ->checks the left side ROIs, when coeff==1 ->checks the right ROIs
 
-        for i in  [2, 3, 4, 5, 6, 7]:
-            if self.ROIs[i][2]: # if this ROI is active
-                self.speed = SUSPICIOUS
+            # Check if the ROI is active (index 2 is the boolean status)
+            if self.ROIs[i][2]:
+                if i < (len(self.ROIs)/2):
+                    self.turn_right()
+                    return 0 # Stop checking once we decide to turn
+                else:
+                    self.turn_left()
+                    return 0 # Stop checking once we decide to turn
+
+        self.no_turn() # No obstacles detected in any ROI
+        return 0
+    
+    def turn_right(self):
+        self.k = TURN_COEFF
+        return 0
+    
+    def turn_left(self):
+        self.k = 1/TURN_COEFF
+        return 0
+    
+    def no_turn(self):
+        self.k = 1
         return 0
 
     def compute_convexe_concave(self): # wokrs better with dt (temporal rather than "geographical")
@@ -355,4 +374,34 @@ class Controller:
             self.pitch_count = 1
         
         return 0
-    
+
+    def _get_all_roi_coords(self):
+        """Helper to return a list of all ROI segments (y, x0, x1)."""
+        return [
+            (self.line_y_left, self.line_left1_x0, self.line_left1_x1),
+            (self.line_y_left, self.line_left2_x0, self.line_left2_x1),
+            (self.line_y_front_left, self.line_front_left1_x0, self.line_front_left1_x1),
+            (self.line_y_front_left, self.line_front_left2_x0, self.line_front_left2_x1),
+            (self.line_y_front_left, self.line_front_left3_x0, self.line_front_left3_x1),
+            (self.line_y_front_right, self.line_front_right1_x0, self.line_front_right1_x1),
+            (self.line_y_front_right, self.line_front_right2_x0, self.line_front_right2_x1),
+            (self.line_y_front_right, self.line_front_right3_x0, self.line_front_right3_x1),
+            (self.line_y_right, self.line_right1_x0, self.line_right1_x1),
+            (self.line_y_right, self.line_right2_x0, self.line_right2_x1)
+        ]
+
+    def is_flipped(self, sim: MiniprojectSimulation, im): 
+        
+        for y, x0, x1 in self._get_all_roi_coords():
+            blue_line = im[int(y), x0:x1, BLUE].astype(int)
+            if np.any(blue_line > 0):
+                if self.maybe_flipped >= FLIPPED_FOR_SURE:   
+                    self.maybe_flipped = 0
+                    return True
+                else:   
+                    self.maybe_flipped += 1
+        return False
+
+    def recover_fly(self, im):
+        im[10:60, 10:60] = COLOR_BLACK
+        return 0
