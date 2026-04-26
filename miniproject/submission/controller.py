@@ -32,6 +32,17 @@ SUSPICIOUS = 0.3
 TURN_COEFF = 2.5
 FLIPPED_FOR_SURE = 200
 
+class ROI:
+    def __init__(self, name, side, y, x0, x1):
+        self.name = name
+        self.side = side  # 'left', 'front_left', 'front_right', 'right'
+        self.base_y = y
+        self.y = y
+        self.x0 = x0
+        self.x1 = x1
+        self.is_active = False
+        self.intensity = (0, 0)
+
 class Controller:
     def __init__(self, sim: MiniprojectSimulation, threshold_line = 40, mode="normal", pitch_weight=1):
         from flygym.examples.locomotion import TurningController
@@ -61,72 +72,29 @@ class Controller:
         self.th_line = threshold_line
         self.window = 16
 
-        # ROI parameters
-        self.ROIs = [] # (intensity_left_segment, intensity_right_segment, status(ON/OFF))
-        self.line_y_left = Y_RIGHT
-        self.line_left1_x0 = 220
-        self.line_left1_x1 = 300
-        self.ROIs.append((0, 0, False)) # False meaning "this ROI is not detecting anything particular"
-        self.line_left2_x0 = 300
-        self.line_left2_x1 = 380
-        self.ROIs.append((0, 0, False))
-
-        self.line_y_front_left = Y_FRONTL
-        self.line_front_left1_x0 = 300
-        self.line_front_left1_x1 = 370
-        self.ROIs.append((0, 0, False)) 
-        self.line_front_left2_x0 = 335
-        self.line_front_left2_x1 = 405
-        self.ROIs.append((0, 0, False))
-        self.line_front_left3_x0 = 370
-        self.line_front_left3_x1 = 440
-        self.ROIs.append((0, 0, False))
-
-        self.line_y_front_right = Y_FRONTR
-        self.line_front_right1_x0 = 460
-        self.line_front_right1_x1 = 530
-        self.ROIs.append((0, 0, False))
-        self.line_front_right2_x0 = 495
-        self.line_front_right2_x1 = 565
-        self.ROIs.append((0, 0, False))
-        self.line_front_right3_x0 = 530
-        self.line_front_right3_x1 = 600
-        self.ROIs.append((0, 0, False))
-
-        self.line_y_right = Y_LEFT
-        self.line_right1_x0 = 520
-        self.line_right1_x1 = 600
-        self.ROIs.append((0, 0, False))
-        self.line_right2_x0 = 600
-        self.line_right2_x1 = 680
-        self.ROIs.append((0, 0, False))
+        # Centralized ROI organization
+        self.all_rois = [
+            ROI("left1", "left", Y_RIGHT, 220, 300), ROI("left2", "left", Y_RIGHT, 300, 380),
+            ROI("front_left1", "front_left", Y_FRONTL, 300, 370), ROI("front_left2", "front_left", Y_FRONTL, 335, 405), ROI("front_left3", "front_left", Y_FRONTL, 370, 440),
+            ROI("front_right1", "front_right", Y_FRONTR, 460, 530), ROI("front_right2", "front_right", Y_FRONTR, 495, 565), ROI("front_right3", "front_right", Y_FRONTR, 530, 600),
+            ROI("right1", "right", Y_LEFT, 520, 600), ROI("right2", "right", Y_LEFT, 600, 680),
+        ]
 
         # walking inhibition
         self.k = 1
 
-        # var ommatidia
-        self.ratio = [0, 0, 0]
-
-    def _set_line_y(self, attr_name, value):
-        
-        if value < 0:  
-            setattr(self, attr_name, 75)
-        elif value > 512:  
-            setattr(self, attr_name, 450)
-        else:
-            setattr(self, attr_name, value)
-
-
     def step(self, sim: MiniprojectSimulation):
         self.count += 1
                 
+        # Slope detection
         if self.count % PITCH_DETECTION_RATE == 1: # if was 0, the pitch or the derivative pitch would be reset to 0 right before the color_vision() starts
             self.detect_slope_proprioceptive(sim)
             self.compute_convexe_concave()
 
             if self.current_slope_category == "carreful_upsidedown":
                 print("!! Retournement imminent !!")
-            
+
+        # Color Vision   
         if self.count % VISION_RATE == 0:
             im = self.color_vision(sim)
 
@@ -136,9 +104,9 @@ class Controller:
             self.adapts_ROI_to_slope() 
             
             if self.mode == "tuning ROI" or self.mode == "tuning slope":
-                self.show_ROI(sim, self.frames[-1], left1=False, left2=False, front_left1=False, front_left2=False, front_left3=False, front_right1=False, front_right2=False, front_right3=False, right1=False, right2=False, fullfill=True)
+                self.show_ROI(sim, self.frames[-1])
 
-            else:
+            else: # Obstacle detection
                 self.detect_line_jump(sim)
                 self.reflexion_obstacle()
 
@@ -158,94 +126,27 @@ class Controller:
 
         return im
 
-    class ROI:
-        def __init__(self, color_left_segment, color_right_segment):
-            self.color_left_segment = color_left_segment
-            self.color_right_segment = color_right_segment
-    
-    def show_ROI(self, sim: MiniprojectSimulation, im, left1, left2, front_left1, front_left2, front_left3, front_right1, front_right2, front_right3, right1, right2, color=COLOR_BLACK):
-        # left lines
-        color_left1 = COLOR_RED if left1 else color
-        for x in range(self.line_left1_x0, self.line_left1_x1):
-            im[self.line_y_left, x] = color_left1
-
-        color_left2 = COLOR_RED if left2 else color
-        for x in range(self.line_left2_x0, self.line_left2_x1):
-            im[self.line_y_left, x] = color_left2
-
-
-        # front-left lines
-        color_front_left1 = COLOR_RED if front_left1 else color
-        for x in range(self.line_front_left1_x0, self.line_front_left1_x1):
-            im[self.line_y_front_left, x] = color_front_left1
-
-        color_front_left2 = COLOR_RED if front_left2 else color
-        for x in range(self.line_front_left2_x0, self.line_front_left2_x1):
-            im[self.line_y_front_left, x] = color_front_left2
-        
-        color_front_left3 = COLOR_RED if front_left3 else color 
-        for x in range(self.line_front_left3_x0, self.line_front_left3_x1):
-            im[self.line_y_front_left, x] = color_front_left3
-
-
-        # front-right lines
-        color_front_right1 = COLOR_RED if front_right1 else color
-        for x in range(self.line_front_right1_x0, self.line_front_right1_x1):
-            im[self.line_y_front_right, x] = color_front_right1
-
-        color_front_right2 = COLOR_RED if front_right2 else color
-        for x in range(self.line_front_right2_x0, self.line_front_right2_x1):
-            im[self.line_y_front_right, x] = color_front_right2
-            
-        color_front_right3 = COLOR_RED if front_right3 else color
-        for x in range(self.line_front_right3_x0, self.line_front_right3_x1):
-            im[self.line_y_front_right, x] = color_front_right3
-
-
-        # right lines
-        color_right1 = COLOR_RED if right1 else color
-        for x in range(self.line_right1_x0, self.line_right1_x1):
-            im[self.line_y_right, x] = color_right1
-
-        color_right2 = COLOR_RED if right2 else color
-        for x in range(self.line_right2_x0, self.line_right2_x1):
-            im[self.line_y_right, x] = color_right2
-
+    def show_ROI(self, sim: MiniprojectSimulation, im, default_color=COLOR_BLACK):
+        for roi in self.all_rois:
+            color = COLOR_RED if roi.is_active else default_color
+            # Ensure y is within image bounds for drawing
+            y_draw = int(np.clip(roi.y, 0, im.shape[0]-1))
+            im[y_draw, roi.x0:roi.x1] = color
         return im
     
     def detect_line_jump(self, sim: MiniprojectSimulation):
         im = self.frames[-1]
-
-        detected_left1 = self.detect_line_jump_ROI(im, self.line_y_left, self.line_left1_x0, self.line_left1_x1, 0)
-        detected_left2 = self.detect_line_jump_ROI(im, self.line_y_left, self.line_left2_x0, self.line_left2_x1, 1)
-        detected_front_left1 = self.detect_line_jump_ROI(im, self.line_y_front_left, self.line_front_left1_x0, self.line_front_left1_x1, 2)
-        detected_front_left2 = self.detect_line_jump_ROI(im, self.line_y_front_left, self.line_front_left2_x0, self.line_front_left2_x1, 3)
-        detected_front_left3 = self.detect_line_jump_ROI(im, self.line_y_front_left, self.line_front_left3_x0, self.line_front_left3_x1, 4)
-        detected_front_right1 = self.detect_line_jump_ROI(im, self.line_y_front_right, self.line_front_right1_x0, self.line_front_right1_x1, 5)
-        detected_front_right2 = self.detect_line_jump_ROI(im, self.line_y_front_right, self.line_front_right2_x0, self.line_front_right2_x1, 6)
-        detected_front_right3 = self.detect_line_jump_ROI(im, self.line_y_front_right, self.line_front_right3_x0, self.line_front_right3_x1, 7)
-        detected_right1 = self.detect_line_jump_ROI(im, self.line_y_right, self.line_right1_x0, self.line_right1_x1, 8)
-        detected_right2 = self.detect_line_jump_ROI(im, self.line_y_right, self.line_right2_x0, self.line_right2_x1, 9)
-
-        self.show_ROI(
-            sim,
-            im,
-            left1=detected_left1,
-            left2=detected_left2,
-            front_left1=detected_front_left1,
-            front_left2=detected_front_left2,
-            front_left3=detected_front_left3,
-            front_right1=detected_front_right1,
-            front_right2=detected_front_right2,
-            front_right3=detected_front_right3,
-            right1=detected_right1,
-            right2=detected_right2
-        )
-
-        return detected_left1, detected_left2, detected_front_left1, detected_front_left2, detected_front_left3, detected_front_right1, detected_front_right2, detected_front_right3, detected_right1, detected_right2
-
-    def detect_line_jump_ROI(self, im, y, x0, x1, id_ROI):
         
+        results = []
+        for roi in self.all_rois:
+            detected = self.detect_line_jump_ROI(im, roi)
+            results.append(detected)
+
+        self.show_ROI(sim, im)
+        return tuple(results)
+
+    def detect_line_jump_ROI(self, im, roi):
+        y, x0, x1 = int(roi.y), roi.x0, roi.x1
         green_line = im[y, x0:x1, GREEN].astype(int)
         red_line = im[y, x0:x1, RED].astype(int)
         
@@ -258,7 +159,7 @@ class Controller:
         for i in range(len(green_line) - 3):
             left_value = green_line[i]
             right_value = green_line[i + 3]
-            if abs(right_value - left_value) <= self.th_line:
+            if abs(right_value - left_value) <= self.th_line: # a change too suden of green intensity
                 continue
 
             left_start = max(0, i - self.window)
@@ -276,12 +177,11 @@ class Controller:
             right_mean = np.mean(right_segment)
 
             if left_std < 10 and right_std < 10 and abs(left_mean - right_mean) > self.th_line:
-                self.ROIs[id_ROI] = (int(left_mean), int(right_mean), True) # this ROI is active <=> obstacle probably there
-                self.reflexion_obstacle()
+                roi.intensity = (int(left_mean), int(right_mean))
+                roi.is_active = True
                 return True
-            else :
-                self.ROIs[id_ROI] = (0, 0, False)
-
+        
+        roi.is_active = False
         return False
     
     def detect_slope_proprioceptive(self, sim: MiniprojectSimulation):
@@ -313,87 +213,44 @@ class Controller:
         return 0
     
     def adapts_ROI_to_slope(self): # when derivative is positive, ROI need to be little higher (and when negative, needs to be a little lower)
-
-        if self.mode == "adapts_ROI derivative":
-            coeff = self.pitch_derivative
-            #if self.count > 2000 and self.count % VISION_RATE == 0:
-                #print(self.pitch_derivative)
-        else :
-            coeff = self.pitch
-
+        coeff = self.pitch_derivative if self.mode == "adapts_ROI derivative" else self.pitch
         coeff *= self.pitch_weight
-        self._set_line_y('line_y_left', int(Y_RIGHT + coeff))
-        self._set_line_y('line_y_front_left', int(Y_FRONTL + coeff))
-        self._set_line_y('line_y_front_right', int(Y_FRONTR + coeff))
-        self._set_line_y('line_y_right', int(Y_LEFT + coeff))
-        
+
+        for roi in self.all_rois:
+            new_y = roi.base_y + coeff
+            roi.y = np.clip(new_y, 75, 475)
+            
         self.pitch_derivative = 0
-
         return 0
-
     
     def reflexion_obstacle(self):
-
-        for i in range(len(self.ROIs)): # when coeff == 0 ->checks the left side ROIs, when coeff==1 ->checks the right ROIs
-
-            # Check if the ROI is active (index 2 is the boolean status)
-            if self.ROIs[i][2]:
-                if i < (len(self.ROIs)/2):
+        for roi in self.all_rois:
+            if roi.is_active:
+                if "left" in roi.side:
                     self.turn_right()
-                    return 0 # Stop checking once we decide to turn
-                else:
+                    return 0
+                elif "right" in roi.side:
                     self.turn_left()
-                    return 0 # Stop checking once we decide to turn
+                    return 0
 
         self.no_turn() # No obstacles detected in any ROI
         return 0
-    
-    def turn_right(self):
-        self.k = TURN_COEFF
-        return 0
-    
-    def turn_left(self):
-        self.k = 1/TURN_COEFF
-        return 0
-    
-    def no_turn(self):
-        self.k = 1
-        return 0
 
-    def compute_convexe_concave(self): # wokrs better with dt (temporal rather than "geographical")
+    def turn_right(self): self.k = TURN_COEFF
+    def turn_left(self): self.k = 1/TURN_COEFF
+    def no_turn(self): self.k = 1
 
-        window = (VISION_RATE/PITCH_DETECTION_RATE+1) # if pitch computed each 50setps and vision each 200steps, we will need the mean of last 4 derivative computations to compute the average pitch
-
+    def compute_convexe_concave(self):
+        window = (VISION_RATE/PITCH_DETECTION_RATE+1)
         if self.pitch_count < window:
-            self.pitch_derivative += ((self.prev_pitch - self.pitch)/self.speed) 
-            # The sign is inverted as the y in the frames is increasing toward the bottom. So when the pitch is increasing -> I need the ROI to go higher -> I need a line_y to be lower
-            # Also, no need to divide by the distance and count, because we can play with the parameter self.pitch_weight. We just need the denominator to be proportional to the speed
+            self.pitch_derivative += ((self.prev_pitch - self.pitch)/self.speed)
             self.pitch_count += 1
-
-        if self.pitch_count == window : # enough data to be sure about the "mean" previous pitch
-            self.pitch_count = 1
-        
+        if self.pitch_count == window : self.pitch_count = 1
         return 0
 
-    def _get_all_roi_coords(self):
-        """Helper to return a list of all ROI segments (y, x0, x1)."""
-        return [
-            (self.line_y_left, self.line_left1_x0, self.line_left1_x1),
-            (self.line_y_left, self.line_left2_x0, self.line_left2_x1),
-            (self.line_y_front_left, self.line_front_left1_x0, self.line_front_left1_x1),
-            (self.line_y_front_left, self.line_front_left2_x0, self.line_front_left2_x1),
-            (self.line_y_front_left, self.line_front_left3_x0, self.line_front_left3_x1),
-            (self.line_y_front_right, self.line_front_right1_x0, self.line_front_right1_x1),
-            (self.line_y_front_right, self.line_front_right2_x0, self.line_front_right2_x1),
-            (self.line_y_front_right, self.line_front_right3_x0, self.line_front_right3_x1),
-            (self.line_y_right, self.line_right1_x0, self.line_right1_x1),
-            (self.line_y_right, self.line_right2_x0, self.line_right2_x1)
-        ]
-
-    def is_flipped(self, sim: MiniprojectSimulation, im): 
-        
-        for y, x0, x1 in self._get_all_roi_coords():
-            blue_line = im[int(y), x0:x1, BLUE].astype(int)
+    def is_flipped(self, sim: MiniprojectSimulation, im):
+        for roi in self.all_rois:
+            blue_line = im[int(roi.y), roi.x0:roi.x1, BLUE].astype(int)
             if np.any(blue_line > 0):
                 if self.maybe_flipped >= FLIPPED_FOR_SURE:   
                     self.maybe_flipped = 0
@@ -403,5 +260,5 @@ class Controller:
         return False
 
     def recover_fly(self, im):
-        im[10:60, 10:60] = COLOR_BLACK
+        im[110:160, 110:160] = COLOR_BLACK
         return 0
