@@ -9,6 +9,9 @@ COLOR_GREEN = [0, 255, 0]
 COLOR_BLUE = [0, 0, 255]
 COLOR_BLACK = [0, 0, 0]
 
+VISION_RATE = 200
+PITCH_DETECTION_RATE = 50
+
 TURN_RIGHT = 1.25
 TURN_LEFT = 1/TURN_RIGHT
 
@@ -27,29 +30,34 @@ SUSPICIOUS = 0.5
 
 
 class Controller:
-    def __init__(self, sim: MiniprojectSimulation, threshold_obstacle, mode="normal", pitch_weight=410):
-        # you may also implement your own turning controller
+    def __init__(self, sim: MiniprojectSimulation, threshold_line = 40, mode="normal", pitch_weight=1):
         from flygym.examples.locomotion import TurningController
         self.turning_controller = TurningController(sim.timestep)
 
+        # general parameters
         self.speed = CONFIDENT
+        self.count = 0
+        self.mode = mode
         
-        # var pr la vision
+        # color vision parameters
         self.frames = []
         
         # param détection de pente proprioceptive
         self.current_slope_category = "flat"
         self.pitch = 0
+        self.prev_pitch = 5 # if it was 0, the first computation of the pitch_derivative is too high and the function adapts_ROI_to_slope wants to put the ROI to a height which is above the limit of the frame (512x900)
+        self.pitch_derivative = 0
+        self.pitch_count = 1
+        self.pitch_collection_window = 4 
         self.pitch_weight = pitch_weight
         self.th_danger_upsidedown = 0.45
         self.th_slope_category = 0.08
 
         # param obstacles
-        self.count = 0
-        self.th_line = 50
+        self.th_line = threshold_line
         self.window = 16
 
-        # param ROI lignes horizontales (divisées en deux chacune)
+        # ROI parameters
         self.ROIs = [] # (intensity_left_segment, intensity_right_segment, status(ON/OFF))
         self.line_y_left = Y_RIGHT
         self.line_left1_x0 = 220
@@ -89,36 +97,34 @@ class Controller:
         self.line_right2_x1 = 680
         self.ROIs.append((0, 0, False))
 
-        # ancien param ROI
-        self.al = -0.22
-        self.ar = 0.22
-        # we will need the initial values of these parameters later. That's why we don't assign them directly a value 
-        self.bl = B_LEFT
-        self.br = B_RIGHT
-        self.bf = B_FRONT
-        self.vertml = 400
-
-        # mode 
-        self.mode = mode
-
-        # inhibitateur de marche
+        # walking inhibition
         self.k = 1
 
         # var ommatidia
         self.ratio = [0, 0, 0]
 
+    def _set_line_y(self, attr_name, value):
+        
+        if value < 0:  
+            setattr(self, attr_name, 75)
+        elif value > 512:  
+            setattr(self, attr_name, 450)
+        else:
+            setattr(self, attr_name, value)
+
 
     def step(self, sim: MiniprojectSimulation):
         self.count += 1
-
                 
-        if self.count % 50 == 1: 
+        if self.count % PITCH_DETECTION_RATE == 1: # if was 0, the pitch or the derivative pitch would be reset to 0 right before the color_vision() starts
+            self.detect_slope_proprioceptive(sim)
+            self.compute_convexe_concave()
+
             if self.current_slope_category == "carreful_upsidedown":
                 print("!! Retournement imminent !!")
             
-        if self.count % 200 == 0:
+        if self.count % VISION_RATE == 0:
             self.color_vision(sim)
-            self.pitch = self.detect_slope_proprioceptive(sim)
             self.adapts_ROI_to_slope() 
             
             if self.mode == "tuning ROI" or self.mode == "tuning slope":
@@ -127,13 +133,14 @@ class Controller:
             else:
                 self.detect_line_jump(sim)
 
+
         drives = np.array([self.speed*self.k, self.speed/self.k])  
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
 
-###########################################################
-#################### TEST ADRI ############################
-###########################################################
+##########################################################################################################
+##########################################################################################################
+##########################################################################################################
     
     def color_vision(self, sim: MiniprojectSimulation):
 
@@ -231,11 +238,11 @@ class Controller:
         return detected_left1, detected_left2, detected_front_left1, detected_front_left2, detected_front_left3, detected_front_right1, detected_front_right2, detected_front_right3, detected_right1, detected_right2
 
     def detect_line_jump_ROI(self, im, y, x0, x1, id_ROI):
+        
         green_line = im[y, x0:x1, GREEN].astype(int)
         red_line = im[y, x0:x1, RED].astype(int)
         
-        # If any pixel has non-zero red channel it's that the foot is in the ROI
-        if np.any(red_line > 60):
+        if np.any(red_line > 60): # pixel with too much red might be the fly's foot
             return False
             
         if green_line.shape[0] < 10:  # need enough pixels to check stability on both sides
@@ -292,17 +299,31 @@ class Controller:
                 self.current_slope_category  = "descending"
             else:
                 self.current_slope_category = "flat"
-        
-        return pitch
-    
-    def adapts_ROI_to_slope(self):
 
-        self.line_y_left = int(Y_RIGHT + self.pitch*self.pitch_weight)
-        self.line_y_front_left = int(Y_FRONTL + self.pitch*self.pitch_weight)
-        self.line_y_front_right = int(Y_FRONTR + self.pitch*self.pitch_weight)
-        self.line_y_right = int(Y_LEFT + self.pitch*self.pitch_weight)
+            self.prev_pitch = self.pitch
+            self.pitch = pitch
+        
+        return 0
+    
+    def adapts_ROI_to_slope(self): # when derivative is positive, ROI need to be little higher (and when negative, needs to be a little lower)
+
+        if self.mode == "adapts_ROI derivative":
+            coeff = self.pitch_derivative
+            #if self.count > 2000 and self.count % VISION_RATE == 0:
+                #print(self.pitch_derivative)
+        else :
+            coeff = self.pitch
+
+        coeff *= self.pitch_weight
+        self._set_line_y('line_y_left', int(Y_RIGHT + coeff))
+        self._set_line_y('line_y_front_left', int(Y_FRONTL + coeff))
+        self._set_line_y('line_y_front_right', int(Y_FRONTR + coeff))
+        self._set_line_y('line_y_right', int(Y_LEFT + coeff))
+        
+        self.pitch_derivative = 0
 
         return 0
+
     
     def reflexion_obstacle(self):
 
@@ -318,10 +339,20 @@ class Controller:
         for i in  [2, 3, 4, 5, 6, 7]:
             if self.ROIs[i][2]: # if this ROI is active
                 self.speed = SUSPICIOUS
-
         return 0
 
-    def compute_convexe_concave(self):
+    def compute_convexe_concave(self): # wokrs better with dt (temporal rather than "geographical")
 
+        window = (VISION_RATE/PITCH_DETECTION_RATE+1) # if pitch computed each 50setps and vision each 200steps, we will need the mean of last 4 derivative computations to compute the average pitch
+
+        if self.pitch_count < window:
+            self.pitch_derivative += ((self.prev_pitch - self.pitch)/self.speed) 
+            # The sign is inverted as the y in the frames is increasing toward the bottom. So when the pitch is increasing -> I need the ROI to go higher -> I need a line_y to be lower
+            # Also, no need to divide by the distance and count, because we can play with the parameter self.pitch_weight. We just need the denominator to be proportional to the speed
+            self.pitch_count += 1
+
+        if self.pitch_count == window : # enough data to be sure about the "mean" previous pitch
+            self.pitch_count = 1
+        
         return 0
     
