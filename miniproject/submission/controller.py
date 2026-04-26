@@ -28,8 +28,8 @@ Y_FRONTR = 320
 Y_RIGHT = 360
 
 CONFIDENT = 1.0
-SUSPICIOUS = 0.5
-TURN_COEFF = 4
+SUSPICIOUS = 0.3
+TURN_COEFF = 2.5
 FLIPPED_FOR_SURE = 200
 
 class Controller:
@@ -53,7 +53,7 @@ class Controller:
         self.pitch_count = 1
         self.pitch_collection_window = 4 
         self.pitch_weight = pitch_weight
-        self.th_danger_upsidedown = 0.45
+        self.th_danger_upsidedown = 0.48
         self.th_slope_category = 0.08
         self.maybe_flipped = 0
 
