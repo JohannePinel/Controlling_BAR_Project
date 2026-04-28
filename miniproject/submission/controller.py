@@ -17,18 +17,11 @@ PITCH_DETECTION_RATE = 50
 TURN_RIGHT = 1.25
 TURN_LEFT = 1/TURN_RIGHT
 
-B_LEFT = 435
-B_RIGHT = 240
-B_FRONT = 320
-TH_FRONT = 20
-
-Y_LEFT = 360
-Y_FRONTL = 320
-Y_FRONTR = 320
-Y_RIGHT = 360
+Y_LOW = 360
+Y_HIGH = 320 # In the color vision, the y axis point toward the bottom
 
 CONFIDENT = 1.0
-SUSPICIOUS = 0.3
+SUSPICIOUS = 0.5
 TURN_COEFF = 2.5
 FLIPPED_FOR_SURE = 200
 
@@ -41,7 +34,8 @@ class ROI:
         self.x0 = x0
         self.x1 = x1
         self.is_active = False
-        self.intensity = (0, 0)
+        self.start_x = x0
+        self.end_x = x1
 
 class Controller:
     def __init__(self, sim: MiniprojectSimulation, threshold_line = 40, mode="normal", pitch_weight=1):
@@ -73,11 +67,14 @@ class Controller:
         self.window = 16
 
         # Centralized ROI organization
+        # 3 ROIs per side, staggered between Y=320 and Y=360
         self.all_rois = [
-            ROI("left1", "left", Y_RIGHT, 220, 300), ROI("left2", "left", Y_RIGHT, 300, 380),
-            ROI("front_left1", "front_left", Y_FRONTL, 300, 370), ROI("front_left2", "front_left", Y_FRONTL, 335, 405), ROI("front_left3", "front_left", Y_FRONTL, 370, 440),
-            ROI("front_right1", "front_right", Y_FRONTR, 460, 530), ROI("front_right2", "front_right", Y_FRONTR, 495, 565), ROI("front_right3", "front_right", Y_FRONTR, 530, 600),
-            ROI("right1", "right", Y_LEFT, 520, 600), ROI("right2", "right", Y_LEFT, 600, 680),
+            ROI("left1", "left", Y_HIGH, 200, 405),
+            ROI("left2", "left", (Y_HIGH + Y_LOW)//2, 200, 405),
+            ROI("left3", "left", Y_LOW, 200, 405),
+            ROI("right1", "right", Y_LOW, 460, 665),
+            ROI("right2", "right", (Y_HIGH + Y_LOW)//2, 460, 665),
+            ROI("right3", "right", Y_HIGH, 460, 665),
         ]
 
         # walking inhibition
@@ -89,7 +86,7 @@ class Controller:
         # Slope detection
         if self.count % PITCH_DETECTION_RATE == 1: # if was 0, the pitch or the derivative pitch would be reset to 0 right before the color_vision() starts
             self.detect_slope_proprioceptive(sim)
-            self.compute_convexe_concave()
+            #self.compute_convexe_concave()
 
             if self.current_slope_category == "carreful_upsidedown":
                 print("!! Retournement imminent !!")
@@ -108,7 +105,7 @@ class Controller:
 
             else: # Obstacle detection
                 self.detect_line_jump(sim)
-                self.reflexion_obstacle()
+                #self.reflexion_obstacle()
 
         drives = np.array([self.speed*self.k, self.speed/self.k])  
         joint_angles, adhesion = self.turning_controller.step(drives)
@@ -128,10 +125,13 @@ class Controller:
 
     def show_ROI(self, sim: MiniprojectSimulation, im, default_color=COLOR_BLACK):
         for roi in self.all_rois:
-            color = COLOR_RED if roi.is_active else default_color
-            # Ensure y is within image bounds for drawing
             y_draw = int(np.clip(roi.y, 0, im.shape[0]-1))
-            im[y_draw, roi.x0:roi.x1] = color
+            if roi.is_active:
+                # Draw background strip in black and the detected obstacle in RED
+                im[y_draw, roi.x0:roi.x1] = COLOR_BLACK
+                im[y_draw, roi.start_x:roi.end_x] = COLOR_RED
+            else:
+                im[y_draw, roi.x0:roi.x1] = default_color
         return im
     
     def detect_line_jump(self, sim: MiniprojectSimulation):
@@ -150,37 +150,52 @@ class Controller:
         green_line = im[y, x0:x1, GREEN].astype(int)
         red_line = im[y, x0:x1, RED].astype(int)
         
-        if np.any(red_line > 60): # pixel with too much red might be the fly's foot
-            return False
-            
-        if green_line.shape[0] < 10:  # need enough pixels to check stability on both sides
+        if np.any(red_line > 60): 
+            roi.is_active = False
             return False
 
+        # 1. Locate the first abrupt change (edge)
+        idx1 = -1
         for i in range(len(green_line) - 3):
-            left_value = green_line[i]
-            right_value = green_line[i + 3]
-            if abs(right_value - left_value) <= self.th_line: # a change too suden of green intensity
-                continue
-
-            left_start = max(0, i - self.window)
-            right_end = min(len(green_line), i + 3 + self.window)
-
-            left_segment = green_line[left_start:i + 1]
-            right_segment = green_line[i + 3:right_end]
-
-            if len(left_segment) < 3 or len(right_segment) < 3:
-                continue
-
-            left_std = np.std(left_segment)
-            right_std = np.std(right_segment)
-            left_mean = np.mean(left_segment)
-            right_mean = np.mean(right_segment)
-
-            if left_std < 10 and right_std < 10 and abs(left_mean - right_mean) > self.th_line:
-                roi.intensity = (int(left_mean), int(right_mean))
-                roi.is_active = True
-                return True
+            if abs(green_line[i+3] - green_line[i]) > self.th_line:
+                idx1 = i
+                break
         
+        if idx1 == -1:
+            roi.is_active = False
+            return False
+
+        # 2. Check stability (tolerance 3) on both sides of the edge to find the obstacle direction
+        win = 4 # neighborhood size
+        r_stable = False
+        if idx1 + 3 + win < len(green_line):
+            seg = green_line[idx1 + 3 : idx1 + 3 + win]
+            if (np.max(seg) - np.min(seg)) <= 3:
+                r_stable = True
+
+        l_stable = False
+        if idx1 - win >= 0:
+            seg = green_line[idx1 - win : idx1]
+            if (np.max(seg) - np.min(seg)) <= 3:
+                l_stable = True
+
+        # 3. Search for the second abrupt change in the stable direction
+        if r_stable:
+            for j in range(idx1 + 3 + win, len(green_line) - 3):
+                if abs(green_line[j+3] - green_line[j]) > self.th_line:
+                    roi.start_x = x0 + idx1
+                    roi.end_x = x0 + j + 3
+                    roi.is_active = True
+                    return True
+        
+        elif l_stable:
+            for j in range(idx1 - win - 3, -1, -1):
+                if abs(green_line[j+3] - green_line[j]) > self.th_line:
+                    roi.start_x = x0 + j
+                    roi.end_x = x0 + idx1 + 3
+                    roi.is_active = True
+                    return True
+
         roi.is_active = False
         return False
     
