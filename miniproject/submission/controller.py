@@ -17,8 +17,10 @@ PITCH_DETECTION_RATE = 50
 TURN_RIGHT = 1.25
 TURN_LEFT = 1/TURN_RIGHT
 
-Y_LOW = 360
-Y_HIGH = 320 # In the color vision, the y axis point toward the bottom
+Y_LOW = 350
+Y_HIGH = 250 # In the color vision, the y axis point toward the bottom
+MIDDLE_LEFT = 449
+MIDDLE_RIGHT = 451
 
 CONFIDENT = 1.0
 SUSPICIOUS = 0.5
@@ -69,12 +71,12 @@ class Controller:
         # Centralized ROI organization
         # 3 ROIs per side, staggered between Y=320 and Y=360
         self.all_rois = [
-            ROI("left1", "left", Y_HIGH, 200, 405),
-            ROI("left2", "left", (Y_HIGH + Y_LOW)//2, 200, 405),
-            ROI("left3", "left", Y_LOW, 200, 405),
-            ROI("right1", "right", Y_LOW, 460, 665),
-            ROI("right2", "right", (Y_HIGH + Y_LOW)//2, 460, 665),
-            ROI("right3", "right", Y_HIGH, 460, 665),
+            ROI("left1", "left", Y_HIGH, 200, MIDDLE_LEFT),
+            ROI("left2", "left", (Y_HIGH + Y_LOW)//2, 200, MIDDLE_LEFT),
+            ROI("left3", "left", Y_LOW, 200, MIDDLE_LEFT),
+            ROI("right1", "right", Y_LOW, MIDDLE_RIGHT, 665),
+            ROI("right2", "right", (Y_HIGH + Y_LOW)//2, MIDDLE_RIGHT, 665),
+            ROI("right3", "right", Y_HIGH, MIDDLE_RIGHT, 665),
         ]
 
         # walking inhibition
@@ -150,9 +152,11 @@ class Controller:
         green_line = im[y, x0:x1, GREEN].astype(int)
         red_line = im[y, x0:x1, RED].astype(int)
         
-        if np.any(red_line > 60): 
-            roi.is_active = False
-            return False
+        # Reverse the scan for left-side ROIs to start from the center of vision
+        is_left = (roi.side == "left")
+        if is_left:
+            green_line = green_line[::-1]
+            red_line = red_line[::-1]
 
         # 1. Locate the first abrupt change (edge)
         idx1 = -1
@@ -180,21 +184,33 @@ class Controller:
                 l_stable = True
 
         # 3. Search for the second abrupt change in the stable direction
+        found = False
+        rel_start, rel_end = -1, -1
         if r_stable:
             for j in range(idx1 + 3 + win, len(green_line) - 3):
                 if abs(green_line[j+3] - green_line[j]) > self.th_line:
-                    roi.start_x = x0 + idx1
-                    roi.end_x = x0 + j + 3
-                    roi.is_active = True
-                    return True
+                    rel_start, rel_end = idx1, j + 3
+                    found = True
+                    break
         
         elif l_stable:
             for j in range(idx1 - win - 3, -1, -1):
                 if abs(green_line[j+3] - green_line[j]) > self.th_line:
-                    roi.start_x = x0 + j
-                    roi.end_x = x0 + idx1 + 3
-                    roi.is_active = True
-                    return True
+                    rel_start, rel_end = j, idx1 + 3
+                    found = True
+                    break
+
+        if found:
+            if is_left:
+                # Map coordinates back from reversed space to original image space
+                line_len = len(green_line)
+                roi.start_x = x0 + (line_len - rel_end)
+                roi.end_x = x0 + (line_len - rel_start)
+            else:
+                roi.start_x = x0 + rel_start
+                roi.end_x = x0 + rel_end
+            roi.is_active = True
+            return True
 
         roi.is_active = False
         return False
