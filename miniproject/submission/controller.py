@@ -35,7 +35,7 @@ SUSPICIOUS = 0.4 # Johanne, j'augmente par ce que c'est lent là
 TURN_COEFF = 2.5
 FLIPPED_FOR_SURE = 200
 
-TURN_DURATION = 100  # La mouche tourne pendant ~100 steps puis réévalue
+TURN_DURATION = 200  # La mouche tourne pendant ~100 steps puis réévalue
 
 
 class ROI:
@@ -107,7 +107,7 @@ class Controller:
         else:
             self.odor_smooth = (1 - self.alpha) * self.odor_smooth + self.alpha * olfaction
 
-        odor_drives = odor_to_drives(self.odor_smooth) * 2.5 #fois x to increase the effect of the odor on the speed, otherwise the fly is too much focused on the obstacle avoidance and doesn't move enough towards the target
+        odor_drives = odor_to_drives(self.odor_smooth) * 3 #fois x to increase the effect of the odor on the speed, otherwise the fly is too much focused on the obstacle avoidance and doesn't move enough towards the target
         ############################################################
                 
         # Slope detection
@@ -115,8 +115,8 @@ class Controller:
             self.detect_slope_proprioceptive(sim)
             self.compute_convexe_concave()
 
-            if self.current_slope_category == "carreful_upsidedown":
-                print("!! Retournement imminent !!")
+            #if self.current_slope_category == "carreful_upsidedown":
+                #print("!! Retournement imminent !!")
 
         # Color Vision   
         if self.count % VISION_RATE == 0:
@@ -326,8 +326,6 @@ def odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80):
         attractive_gain * (attractive[0] - attractive[1]) / attractive.mean()
         if attractive.mean() != 0 else 0
     )
-
-    # Source aversive (dimension 1 — optionnelle)
     aversive_bias = 0
     if n_sources >= 2:
         aversive = np.average(
