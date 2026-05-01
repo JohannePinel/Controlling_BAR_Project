@@ -37,6 +37,7 @@ class ROI:
         self.x1 = x1
         self.is_active = False
         self.detected_segments = []
+        self.inner_segments = []
 
 class Controller:
     def __init__(self, sim: MiniprojectSimulation, threshold_line, mode="normal", pitch_weight=1):
@@ -70,12 +71,12 @@ class Controller:
         # Centralized ROI organization
         # 3 ROIs per side, staggered between Y=320 and Y=360
         self.all_rois = [
-            ROI("left1", "left", Y_HIGH, 200, MIDDLE_LEFT),
-            ROI("left2", "left", (Y_HIGH + Y_LOW)//2, 200, MIDDLE_LEFT),
-            ROI("left3", "left", Y_LOW, 200, MIDDLE_LEFT),
-            ROI("right1", "right", Y_LOW, MIDDLE_RIGHT, 665),
-            ROI("right2", "right", (Y_HIGH + Y_LOW)//2, MIDDLE_RIGHT, 665),
-            ROI("right3", "right", Y_HIGH, MIDDLE_RIGHT, 665),
+            ROI("left1", "left", Y_HIGH, 140, MIDDLE_LEFT),
+            ROI("left2", "left", (Y_HIGH + Y_LOW)//2, 140, MIDDLE_LEFT),
+            ROI("left3", "left", Y_LOW, 140, MIDDLE_LEFT),
+            ROI("right1", "right", Y_LOW, MIDDLE_RIGHT, 700),
+            ROI("right2", "right", (Y_HIGH + Y_LOW)//2, MIDDLE_RIGHT, 700),
+            ROI("right3", "right", Y_HIGH, MIDDLE_RIGHT, 700),
         ]
 
         # walking inhibition
@@ -131,6 +132,10 @@ class Controller:
             if roi.is_active:
                 for start, end in roi.detected_segments:
                     im[y_draw, start:end] = COLOR_RED
+                
+                # Draw inner parts in GREEN
+                for start, end in roi.inner_segments:
+                    im[y_draw, start:end] = COLOR_GREEN
         return im
     
     def detect_line_jump(self, sim: MiniprojectSimulation):
@@ -146,19 +151,27 @@ class Controller:
 
     def detect_line_jump_ROI(self, im, roi):
         """
-        Multi-edge detection: checks for significant differences in 
-        green intensity across the entire scanline.
+        Detects multiple edges and evaluates every interval (including those 
+        at the start and end of the scanline) for stability and intensity.
+        This allows edges to have inner obstacle parts on both left and right.
         """
         y, x0, x1 = int(roi.y), roi.x0, roi.x1
         green_line = im[y, x0:x1, GREEN].astype(int)
         
         roi.detected_segments = []
-        # Threshold-based edge detection
+        roi.inner_segments = []
+        
+        if len(green_line) < 10:
+            return False
+
+        # 1. Find all edge indices using the threshold
+        edge_indices = []
         diff_width = 4
         i = 0
         while i < len(green_line) - diff_width:
             if abs(green_line[i + diff_width] - green_line[i]) > self.th_line:
                 # Edge detected
+                edge_indices.append(i)
                 center = i + diff_width // 2
                 # Store this segment
                 roi.detected_segments.append((
@@ -169,6 +182,24 @@ class Controller:
                 i += 10
             else:
                 i += 1
+
+        # 2. Analyze all intervals (start of line, edges, end of line) for 'inner' parts.
+        # Each edge boundary allows checking for an inner part to its left and right.
+        boundary_points = [0] + [idx + 2 for idx in edge_indices] + [len(green_line)]
+        
+        for k in range(len(boundary_points) - 1):
+            idx_start = boundary_points[k]
+            idx_end = boundary_points[k+1]
+            
+            # Avoid checking the pixels immediately inside the edge transition
+            check_start = idx_start + (5 if k > 0 else 0)
+            check_end = idx_end - (5 if k < len(boundary_points) - 2 else 0)
+            
+            if check_end > check_start + 2:
+                segment = green_line[check_start:check_end]
+                # Check for constant intensity (stability) and minimum brightness
+                if np.ptp(segment) <= 3 and np.mean(segment) > 50:
+                    roi.inner_segments.append((x0 + idx_start, x0 + idx_end))
 
         roi.is_active = len(roi.detected_segments) > 0
         return roi.is_active
