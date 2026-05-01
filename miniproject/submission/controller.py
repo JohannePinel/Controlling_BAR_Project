@@ -36,11 +36,10 @@ class ROI:
         self.x0 = x0
         self.x1 = x1
         self.is_active = False
-        self.start_x = x0
-        self.end_x = x1
+        self.detected_segments = []
 
 class Controller:
-    def __init__(self, sim: MiniprojectSimulation, threshold_line = 40, mode="normal", pitch_weight=1):
+    def __init__(self, sim: MiniprojectSimulation, threshold_line, mode="normal", pitch_weight=1):
         from flygym.examples.locomotion import TurningController
         self.turning_controller = TurningController(sim.timestep)
 
@@ -128,12 +127,10 @@ class Controller:
     def show_ROI(self, sim: MiniprojectSimulation, im, default_color=COLOR_BLACK):
         for roi in self.all_rois:
             y_draw = int(np.clip(roi.y, 0, im.shape[0]-1))
+            im[y_draw, roi.x0:roi.x1] = default_color
             if roi.is_active:
-                # Draw background strip in black and the detected obstacle in RED
-                im[y_draw, roi.x0:roi.x1] = COLOR_BLACK
-                im[y_draw, roi.start_x:roi.end_x] = COLOR_RED
-            else:
-                im[y_draw, roi.x0:roi.x1] = default_color
+                for start, end in roi.detected_segments:
+                    im[y_draw, start:end] = COLOR_RED
         return im
     
     def detect_line_jump(self, sim: MiniprojectSimulation):
@@ -148,73 +145,34 @@ class Controller:
         return tuple(results)
 
     def detect_line_jump_ROI(self, im, roi):
+        """
+        Multi-edge detection: checks for significant differences in 
+        green intensity across the entire scanline.
+        """
         y, x0, x1 = int(roi.y), roi.x0, roi.x1
         green_line = im[y, x0:x1, GREEN].astype(int)
-        red_line = im[y, x0:x1, RED].astype(int)
         
-        # Reverse the scan for left-side ROIs to start from the center of vision
-        is_left = (roi.side == "left")
-        if is_left:
-            green_line = green_line[::-1]
-            red_line = red_line[::-1]
-
-        # 1. Locate the first abrupt change (edge)
-        idx1 = -1
-        for i in range(len(green_line) - 3):
-            if abs(green_line[i+3] - green_line[i]) > self.th_line:
-                idx1 = i
-                break
-        
-        if idx1 == -1:
-            roi.is_active = False
-            return False
-
-        # 2. Check stability (tolerance 3) on both sides of the edge to find the obstacle direction
-        win = 4 # neighborhood size
-        r_stable = False
-        if idx1 + 3 + win < len(green_line):
-            seg = green_line[idx1 + 3 : idx1 + 3 + win]
-            if (np.max(seg) - np.min(seg)) <= 3:
-                r_stable = True
-
-        l_stable = False
-        if idx1 - win >= 0:
-            seg = green_line[idx1 - win : idx1]
-            if (np.max(seg) - np.min(seg)) <= 3:
-                l_stable = True
-
-        # 3. Search for the second abrupt change in the stable direction
-        found = False
-        rel_start, rel_end = -1, -1
-        if r_stable:
-            for j in range(idx1 + 3 + win, len(green_line) - 3):
-                if abs(green_line[j+3] - green_line[j]) > self.th_line:
-                    rel_start, rel_end = idx1, j + 3
-                    found = True
-                    break
-        
-        elif l_stable:
-            for j in range(idx1 - win - 3, -1, -1):
-                if abs(green_line[j+3] - green_line[j]) > self.th_line:
-                    rel_start, rel_end = j, idx1 + 3
-                    found = True
-                    break
-
-        if found:
-            if is_left:
-                # Map coordinates back from reversed space to original image space
-                line_len = len(green_line)
-                roi.start_x = x0 + (line_len - rel_end)
-                roi.end_x = x0 + (line_len - rel_start)
+        roi.detected_segments = []
+        # Threshold-based edge detection
+        diff_width = 4
+        i = 0
+        while i < len(green_line) - diff_width:
+            if abs(green_line[i + diff_width] - green_line[i]) > self.th_line:
+                # Edge detected
+                center = i + diff_width // 2
+                # Store this segment
+                roi.detected_segments.append((
+                    x0 + max(0, center - 5),
+                    x0 + min(len(green_line), center + 5)
+                ))
+                # Skip ahead to find the next discrete edge
+                i += 10
             else:
-                roi.start_x = x0 + rel_start
-                roi.end_x = x0 + rel_end
-            roi.is_active = True
-            return True
+                i += 1
 
-        roi.is_active = False
-        return False
-    
+        roi.is_active = len(roi.detected_segments) > 0
+        return roi.is_active
+
     def detect_slope_proprioceptive(self, sim: MiniprojectSimulation):
         from scipy.spatial.transform import Rotation
         
