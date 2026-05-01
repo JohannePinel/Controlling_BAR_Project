@@ -27,6 +27,23 @@ SUSPICIOUS = 0.5
 TURN_COEFF = 2.5
 FLIPPED_FOR_SURE = 200
 
+class Rectangle:
+    def __init__(self, center_x, center_y, width, height, color):
+        self.center_x = center_x
+        self.center_y = center_y
+        self.width = width
+        self.height = height
+        self.color = color
+
+    @property
+    def bounds(self):
+        """Returns the coordinates of the rectangle as (x_min, y_min, x_max, y_max)."""
+        x_min = self.center_x - self.width / 2
+        y_min = self.center_y - self.height / 2
+        x_max = self.center_x + self.width / 2
+        y_max = self.center_y + self.height / 2
+        return x_min, y_min, x_max, y_max
+
 class ROI:
     def __init__(self, name, side, y, x0, x1):
         self.name = name
@@ -75,6 +92,12 @@ class Controller:
             ROI("mid", "center", (Y_HIGH + Y_LOW)//2, 140, 700),
             ROI("low", "center", Y_LOW, 140, 700),
         ]
+
+        # Initialize the black mask rectangle
+        roi_length = 700 - 140
+        center_x, center_y = 450, 256 # Center of 900x512 image
+        self.mask_rectangle_base_y = center_y
+        self.mask_rectangle = Rectangle(center_x, center_y, roi_length, 200, COLOR_BLACK)
 
         # walking inhibition
         self.k = 1
@@ -138,6 +161,22 @@ class Controller:
                 # Draw inner parts in GREEN
                 for start, end in roi.inner_segments:
                     im[y_draw, start:end] = COLOR_GREEN
+
+        # Draw the black rectangle mask after all intensity processing is complete
+        x_min, y_min, x_max, y_max = [int(v) for v in self.mask_rectangle.bounds]
+        y_min, y_max = np.clip([y_min, y_max], 0, im.shape[0] - 1)
+        x_min, x_max = np.clip([x_min, x_max], 0, im.shape[1] - 1)
+
+        im[y_min, x_min:x_max+1] = self.mask_rectangle.color # Top line
+        im[y_max, x_min:x_max+1] = self.mask_rectangle.color # Bottom line
+        im[y_min:y_max+1, x_min] = self.mask_rectangle.color # Left line
+        im[y_min:y_max+1, x_max] = self.mask_rectangle.color # Right line
+
+        # Draw 3 vertical lines to divide the rectangle into 4 equal regions
+        for i in range(1, 4):
+            x_div = int(x_min + i * (x_max - x_min) / 4)
+            im[y_min:y_max+1, x_div] = self.mask_rectangle.color
+
         return im
     
     def detect_line_jump(self, sim: MiniprojectSimulation):
@@ -242,9 +281,34 @@ class Controller:
             new_y = roi.base_y + coeff
             roi.y = np.clip(new_y, 75, 475)
             
+        # Update rectangle center height similarly to ROIs
+        self.mask_rectangle.center_y = np.clip(self.mask_rectangle_base_y + coeff, 75, 475)
+            
         self.pitch_derivative = 0
         return 0
     
+    def starting_point(self):
+        """
+        Identifies the x-coordinate of the midpoint of the 'inner obstacle' segment
+        that is closest to the center of the field of view (x=450).
+        
+        Returns:
+            float: The x-coordinate of the midpoint of the most central inner segment,
+                   or None if no inner segments are detected.
+        """
+        center_vision_x = (MIDDLE_LEFT + MIDDLE_RIGHT) // 2
+        closest_mid_x = None
+        min_distance = float('inf')
+
+        for roi in self.all_rois:
+            for start, end in roi.inner_segments:
+                segment_mid_x = (start + end) / 2
+                distance = abs(segment_mid_x - center_vision_x)
+                if distance < min_distance:
+                    min_distance = distance
+                    closest_mid_x = segment_mid_x
+        return closest_mid_x
+
     def is_left(self, x):
         return x < (MIDDLE_LEFT + MIDDLE_RIGHT) // 2
 
