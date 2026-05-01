@@ -92,6 +92,7 @@ class Controller:
             ROI("mid", "center", (Y_HIGH + Y_LOW)//2, 140, 700),
             ROI("low", "center", Y_LOW, 140, 700),
         ]
+        self.last_vertical_segment = None
 
         # Initialize the black mask rectangle
         roi_length = 700 - 140
@@ -177,6 +178,13 @@ class Controller:
             x_div = int(x_min + i * (x_max - x_min) / 4)
             im[y_min:y_max+1, x_div] = self.mask_rectangle.color
 
+        # Draw the detected vertical obstacle height in BLUE (drawn last and thicker for visibility)
+        if self.last_vertical_segment:
+            vx, vy0, vy1 = self.last_vertical_segment
+            vx_start = max(0, vx - 1)
+            vx_end = min(im.shape[1], vx + 2)
+            im[vy0:vy1, vx_start:vx_end] = COLOR_BLUE
+
         return im
     
     def detect_line_jump(self, sim: MiniprojectSimulation):
@@ -186,6 +194,14 @@ class Controller:
         for roi in self.all_rois:
             detected = self.detect_line_jump_ROI(im, roi)
             results.append(detected)
+
+        # Vertical height detection based on the most central obstacle
+        target_point = self.starting_point()
+        if target_point:
+            vx, vy_start = target_point
+            self.last_vertical_segment = self.detect_vertical_obstacle_bounds(im, vx, vy_start)
+        else:
+            self.last_vertical_segment = None
 
         self.show_ROI(sim, im)
         return tuple(results)
@@ -245,6 +261,33 @@ class Controller:
         roi.is_active = len(roi.detected_segments) > 0
         return roi.is_active
 
+    def detect_vertical_obstacle_bounds(self, im, x, y_start):
+        """
+        Scans vertically from a seed point to find the upper and lower edges
+        of an obstacle using intensity gradients.
+        """
+        th = self.th_line
+        diff = 4
+        y_top = 0
+        y_bottom = im.shape[0] - 1
+        vx = int(np.clip(x, 0, im.shape[1] - 1))
+        
+        green_v = im[:, vx, GREEN].astype(int)
+
+        # Upward scan for upper bound
+        for y in range(int(y_start), diff, -1):
+            if abs(green_v[y - diff] - green_v[y]) > th:
+                y_top = y
+                break
+        
+        # Downward scan for lower bound
+        for y in range(int(y_start), im.shape[0] - diff):
+            if abs(green_v[y + diff] - green_v[y]) > th:
+                y_bottom = y
+                break
+                
+        return (vx, y_top, y_bottom)
+
     def detect_slope_proprioceptive(self, sim: MiniprojectSimulation):
         from scipy.spatial.transform import Rotation
         
@@ -293,11 +336,10 @@ class Controller:
         that is closest to the center of the field of view (x=450).
         
         Returns:
-            float: The x-coordinate of the midpoint of the most central inner segment,
-                   or None if no inner segments are detected.
+            tuple: (x, y) coordinates of the seed point, or None.
         """
         center_vision_x = (MIDDLE_LEFT + MIDDLE_RIGHT) // 2
-        closest_mid_x = None
+        best_point = None
         min_distance = float('inf')
 
         for roi in self.all_rois:
@@ -306,8 +348,8 @@ class Controller:
                 distance = abs(segment_mid_x - center_vision_x)
                 if distance < min_distance:
                     min_distance = distance
-                    closest_mid_x = segment_mid_x
-        return closest_mid_x
+                    best_point = (segment_mid_x, roi.y)
+        return best_point
 
     def is_left(self, x):
         return x < (MIDDLE_LEFT + MIDDLE_RIGHT) // 2
