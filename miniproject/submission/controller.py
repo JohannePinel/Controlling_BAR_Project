@@ -48,6 +48,7 @@ class Controller:
         self.speed = SUSPICIOUS
         self.count = 0
         self.mode = mode
+        self.draw_edges = True
         
         # color vision parameters
         self.frames = []
@@ -68,15 +69,11 @@ class Controller:
         self.th_line = threshold_line
         self.window = 16
 
-        # Centralized ROI organization
-        # 3 ROIs per side, staggered between Y=320 and Y=360
+        # Consolidated ROI organization: 1 ROI per height spanning full width
         self.all_rois = [
-            ROI("left1", "left", Y_HIGH, 140, MIDDLE_LEFT),
-            ROI("left2", "left", (Y_HIGH + Y_LOW)//2, 140, MIDDLE_LEFT),
-            ROI("left3", "left", Y_LOW, 140, MIDDLE_LEFT),
-            ROI("right1", "right", Y_LOW, MIDDLE_RIGHT, 700),
-            ROI("right2", "right", (Y_HIGH + Y_LOW)//2, MIDDLE_RIGHT, 700),
-            ROI("right3", "right", Y_HIGH, MIDDLE_RIGHT, 700),
+            ROI("high", "center", Y_HIGH, 140, 700),
+            ROI("mid", "center", (Y_HIGH + Y_LOW)//2, 140, 700),
+            ROI("low", "center", Y_LOW, 140, 700),
         ]
 
         # walking inhibition
@@ -125,13 +122,18 @@ class Controller:
 
         return im
 
+    def set_edge_drawing(self, status):
+        """Toggle the visibility of detected edges (red points) in the visualization."""
+        self.draw_edges = status
+
     def show_ROI(self, sim: MiniprojectSimulation, im, default_color=COLOR_BLACK):
         for roi in self.all_rois:
             y_draw = int(np.clip(roi.y, 0, im.shape[0]-1))
             im[y_draw, roi.x0:roi.x1] = default_color
             if roi.is_active:
-                for start, end in roi.detected_segments:
-                    im[y_draw, start:end] = COLOR_RED
+                if self.draw_edges:
+                    for start, end in roi.detected_segments:
+                        im[y_draw, start:end] = COLOR_RED
                 
                 # Draw inner parts in GREEN
                 for start, end in roi.inner_segments:
@@ -243,15 +245,20 @@ class Controller:
         self.pitch_derivative = 0
         return 0
     
+    def is_left(self, x):
+        return x < (MIDDLE_LEFT + MIDDLE_RIGHT) // 2
+
     def reflexion_obstacle(self):
         for roi in self.all_rois:
             if roi.is_active:
-                if "left" in roi.side:
-                    self.turn_right()
-                    return 0
-                elif "right" in roi.side:
-                    self.turn_left()
-                    return 0
+                for start, end in roi.detected_segments:
+                    # If segment is on the left half of the vision, turn right
+                    if self.is_left((start + end) / 2):
+                        self.turn_right()
+                        return 0
+                    else:
+                        self.turn_left()
+                        return 0
 
         self.no_turn() # No obstacles detected in any ROI
         return 0
