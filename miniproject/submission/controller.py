@@ -96,8 +96,13 @@ class Controller:
             ROI("mid", (Y_HIGH + Y_LOW)//2, X_LEFT, X_RIGHT),
             ROI("low", Y_LOW, X_LEFT, X_RIGHT),
         ]
-        self.last_vertical_segments = []        
+        self.last_vertical_segments = []     
 
+        self.rectangle0 = Rectangle(X_LEFT*3/4 + MIDDLE_LEFT/4, (Y_HIGH + Y_LOW)//4, (MIDDLE_LEFT-X_LEFT)//2, (Y_HIGH-Y_LOW)*2, COLOR_BLACK)   
+        """self.rectangle1 = Rectangle(X_LEFT*3/4 + MIDDLE_LEFT/4, (Y_HIGH + Y_LOW)//4, (MIDDLE_LEFT-X_LEFT)//2, (Y_HIGH-Y_LOW)*2, COLOR_BLACK)   
+        self.rectangle2 = Rectangle(X_LEFT*3/4 + MIDDLE_LEFT/4, (Y_HIGH + Y_LOW)//4, (MIDDLE_LEFT-X_LEFT)//2, (Y_HIGH-Y_LOW)*2, COLOR_BLACK)   
+        self.rectangle3 = Rectangle(X_LEFT*3/4 + MIDDLE_LEFT/4, (Y_HIGH + Y_LOW)//4, (MIDDLE_LEFT-X_LEFT)//2, (Y_HIGH-Y_LOW)*2, COLOR_BLACK)   
+ A compléter """
         # walking inhibition
         self.k = 1
 
@@ -125,8 +130,9 @@ class Controller:
                 self.show_ROI(sim, self.frames[-1])
 
             else:
-                self.detect_line_jump(sim) # contains show_ROI
-                self.show_rectangles(im)
+                self.detect_line_jump(sim) # contains show_ROI , cleans the last_vertical_segments
+                regions = self.comparison_obstacles()
+                self.show_rectangles(im, regions)
 
         drives = np.array([self.speed*self.k, self.speed/self.k])  
         joint_angles, adhesion = self.turning_controller.step(drives)
@@ -148,8 +154,12 @@ class Controller:
         """Toggle the visibility of detected edges (red points) in the visualization."""
         self.draw_edges = status
     
-    def show_rectangles(self, im):
-        im = self.frames[-1]
+    def show_rectangles(self, regions):
+        idx_max = regions.index(max(regions))
+
+        if idx_max == 0:
+            self.turn_right()
+        return idx_max
 
     def show_ROI(self, sim: MiniprojectSimulation, im, default_color=COLOR_BLACK):
         for roi in self.all_rois:
@@ -377,22 +387,33 @@ class Controller:
         return points
 
     def is_left(self, x):
-        return x < (MIDDLE_LEFT + MIDDLE_RIGHT) // 2
+        return x <= (MIDDLE_LEFT)
+    
+    def is_end_of_roi(self, x):
+        return x <= ((MIDDLE_LEFT + X_LEFT)/2) or x >= ((MIDDLE_RIGHT + X_RIGHT)/2)
 
-    def reflexion_obstacle(self):
-        for roi in self.all_rois:
-            if roi.is_active:
-                for start, end in roi.detected_segments:
-                    # If segment is on the left half of the vision, turn right
-                    if self.is_left((start + end) / 2):
-                        self.turn_right()
-                        return 0
-                    else:
-                        self.turn_left()
-                        return 0
+    def comparison_obstacles(self):
+        region0 = 0
+        region1 = 0
+        region2 = 0
+        region3 = 0
 
-        self.no_turn() # No obstacles detected in any ROI
-        return 0
+        for i in range(len(self.last_vertical_segments)): # contains (x, y_top, y_bottom)
+            x = self.last_vertical_segments[i][0]
+            height = self.last_vertical_segments[i][1]-self.last_vertical_segments[i][2]
+
+            if self.is_left(x):
+                if self.is_end_of_roi(x):
+                    region0 += height
+                else:
+                    region1 += height
+            else:
+                if self.is_end_of_roi(x):
+                    region2 += height
+                else:
+                    region3 += height
+
+            return (region0, region1, region2, region3)
 
     def turn_right(self): self.k = TURN_COEFF
     def turn_left(self): self.k = 1/TURN_COEFF
