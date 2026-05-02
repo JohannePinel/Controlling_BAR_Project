@@ -88,17 +88,11 @@ class Controller:
 
         # Consolidated ROI organization: 1 ROI per height spanning full width
         self.all_rois = [
-            ROI("high", "center", Y_HIGH, 140, 700),
-            ROI("mid", "center", (Y_HIGH + Y_LOW)//2, 140, 700),
-            ROI("low", "center", Y_LOW, 140, 700),
+            ROI("high", "center", Y_HIGH, 140, 750),
+            ROI("mid", "center", (Y_HIGH + Y_LOW)//2, 140, 750),
+            ROI("low", "center", Y_LOW, 140, 750),
         ]
         self.last_vertical_segment = None
-
-        # Initialize the black mask rectangle
-        roi_length = 700 - 140
-        center_x, center_y = 450, 256 # Center of 900x512 image
-        self.mask_rectangle_base_y = center_y
-        self.mask_rectangle = Rectangle(center_x, center_y, roi_length, 200, COLOR_BLACK)
 
         # walking inhibition
         self.k = 1
@@ -111,8 +105,8 @@ class Controller:
             self.detect_slope_proprioceptive(sim)
             #self.compute_convexe_concave()
 
-            if self.current_slope_category == "carreful_upsidedown":
-                print("!! Retournement imminent !!")
+            #if self.current_slope_category == "carreful_upsidedown":
+            #    print("!! Retournement imminent !!")
 
         # Color Vision   
         if self.count % VISION_RATE == 0:
@@ -163,21 +157,6 @@ class Controller:
                 for start, end in roi.inner_segments:
                     im[y_draw, start:end] = COLOR_GREEN
 
-        # Draw the black rectangle mask after all intensity processing is complete
-        x_min, y_min, x_max, y_max = [int(v) for v in self.mask_rectangle.bounds]
-        y_min, y_max = np.clip([y_min, y_max], 0, im.shape[0] - 1)
-        x_min, x_max = np.clip([x_min, x_max], 0, im.shape[1] - 1)
-
-        im[y_min, x_min:x_max+1] = self.mask_rectangle.color # Top line
-        im[y_max, x_min:x_max+1] = self.mask_rectangle.color # Bottom line
-        im[y_min:y_max+1, x_min] = self.mask_rectangle.color # Left line
-        im[y_min:y_max+1, x_max] = self.mask_rectangle.color # Right line
-
-        # Draw 3 vertical lines to divide the rectangle into 4 equal regions
-        for i in range(1, 4):
-            x_div = int(x_min + i * (x_max - x_min) / 4)
-            im[y_min:y_max+1, x_div] = self.mask_rectangle.color
-
         # Draw the detected vertical obstacle height in BLUE (drawn last and thicker for visibility)
         if self.last_vertical_segment:
             vx, vy0, vy1 = self.last_vertical_segment
@@ -226,7 +205,7 @@ class Controller:
         diff_width = 4
         i = 0
         while i < len(green_line) - diff_width:
-            if abs(green_line[i + diff_width] - green_line[i]) > self.th_line:
+            if self.different_intensities(green_line[i + diff_width], green_line[i], self.th_line):
                 # Edge detected
                 edge_indices.append(i)
                 center = i + diff_width // 2
@@ -254,12 +233,40 @@ class Controller:
             
             if check_end > check_start + 2:
                 segment = green_line[check_start:check_end]
-                # Check for constant intensity (stability) and minimum brightness
-                if np.ptp(segment) <= 3 and np.mean(segment) > 50:
+                blue_segment = im[y, check_start:check_end, BLUE].astype(int)
+
+                # Check for: not in the sky AND not in the grass AND "stable" intensity 
+                if not self.in_the_sky(np.mean(blue_segment)) and not self.in_the_grass(np.mean(segment)) and np.ptp(segment) <= 3:
                     roi.inner_segments.append((x0 + idx_start, x0 + idx_end))
 
         roi.is_active = len(roi.detected_segments) > 0
         return roi.is_active
+
+    def capture_mean_grass(self):
+        im = self.frames[-1]
+        mean = 0
+        line = np.concatenate([im[400, 300:400, GREEN], im[400, 500:600, GREEN]]).astype(int)
+        mean = np.mean(line)
+
+        return mean
+    
+    def different_intensities(self, int1, int2, epsilon):
+        if abs(int1 - int2) > epsilon:
+            return True
+        return False
+    
+    def in_the_sky(self, value):
+        if value > 10:
+            return True
+        return False
+    
+    def in_the_grass(self, value):
+        if self.different_intensities(value, self.capture_mean_grass(), 20):
+            return False
+        return True
+
+    def in_the_black(self, point): 
+       return all(v < 30 for v in point)
 
     def detect_vertical_obstacle_bounds(self, im, x, y_start):
         """
@@ -273,10 +280,15 @@ class Controller:
         vx = int(np.clip(x, 0, im.shape[1] - 1))
         
         green_v = im[:, vx, GREEN].astype(int)
-
+        blue_v = im[:, vx, BLUE].astype(int)
+        red_v = im[:, vx, RED].astype(int)
+        
         # Upward scan for upper bound
         for y in range(int(y_start), diff, -1):
-            if abs(green_v[y - diff] - green_v[y]) > th:
+            
+            if self.different_intensities(green_v[y - diff], green_v[y], th) or \
+               self.in_the_sky(blue_v[y]) or \
+               self.in_the_black([red_v[y], green_v[y], blue_v[y]]):
                 y_top = y
                 break
         
@@ -323,9 +335,6 @@ class Controller:
         for roi in self.all_rois:
             new_y = roi.base_y + coeff
             roi.y = np.clip(new_y, 75, 475)
-            
-        # Update rectangle center height similarly to ROIs
-        self.mask_rectangle.center_y = np.clip(self.mask_rectangle_base_y + coeff, 75, 475)
             
         self.pitch_derivative = 0
         return 0
