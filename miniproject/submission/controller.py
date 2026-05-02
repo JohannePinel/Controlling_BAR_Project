@@ -1,27 +1,30 @@
 import numpy as np
 from miniproject.simulation import MiniprojectSimulation
 
-
+# colors
 RED = 0
 GREEN = 1
 BLUE = 2
-
 COLOR_RED = [255, 0, 0]
 COLOR_GREEN = [0, 255, 0]
 COLOR_BLUE = [0, 0, 255]
 COLOR_BLACK = [0, 0, 0]
 
+# rates
 VISION_RATE = 200
 PITCH_DETECTION_RATE = 50
 
-TURN_RIGHT = 1.25
-TURN_LEFT = 1/TURN_RIGHT
-
+# ROIs
 Y_LOW = 350
 Y_HIGH = 250 # In the color vision, the y axis point toward the bottom
+X_LEFT = 140
+X_RIGHT = 750
 MIDDLE_LEFT = 449
 MIDDLE_RIGHT = 451
 
+# walking
+TURN_RIGHT = 1.25
+TURN_LEFT = 1/TURN_RIGHT
 CONFIDENT = 1.0
 SUSPICIOUS = 0.5
 TURN_COEFF = 2.5
@@ -45,16 +48,17 @@ class Rectangle:
         return x_min, y_min, x_max, y_max
 
 class ROI:
-    def __init__(self, name, side, y, x0, x1):
+    def __init__(self, name, y, x0, x1):
         self.name = name
-        self.side = side  # 'left', 'front_left', 'front_right', 'right'
         self.base_y = y
         self.y = y
         self.x0 = x0
         self.x1 = x1
         self.is_active = False
-        self.detected_segments = []
-        self.inner_segments = []
+        self.inner_segments = [] # list of (x_start ; x_end) of a segment rpzenting the inner part of an obstacle
+        self.edge_indices = []
+        self.diff_width = 4
+
 
 class Controller:
     def __init__(self, sim: MiniprojectSimulation, threshold_line, mode="normal", pitch_weight=1):
@@ -88,11 +92,11 @@ class Controller:
 
         # Consolidated ROI organization: 1 ROI per height spanning full width
         self.all_rois = [
-            ROI("high", "center", Y_HIGH, 140, 750),
-            ROI("mid", "center", (Y_HIGH + Y_LOW)//2, 140, 750),
-            ROI("low", "center", Y_LOW, 140, 750),
+            ROI("high", Y_HIGH, X_LEFT, X_RIGHT),
+            ROI("mid", (Y_HIGH + Y_LOW)//2, X_LEFT, X_RIGHT),
+            ROI("low", Y_LOW, X_LEFT, X_RIGHT),
         ]
-        self.last_vertical_segment = None
+        self.last_vertical_segments = []        
 
         # walking inhibition
         self.k = 1
@@ -120,9 +124,9 @@ class Controller:
             if self.mode == "tuning ROI" or self.mode == "tuning slope":
                 self.show_ROI(sim, self.frames[-1])
 
-            else: # Obstacle detection
-                self.detect_line_jump(sim)
-                #self.reflexion_obstacle()
+            else:
+                self.detect_line_jump(sim) # contains show_ROI
+                self.show_rectangles(im)
 
         drives = np.array([self.speed*self.k, self.speed/self.k])  
         joint_angles, adhesion = self.turning_controller.step(drives)
@@ -143,6 +147,9 @@ class Controller:
     def set_edge_drawing(self, status):
         """Toggle the visibility of detected edges (red points) in the visualization."""
         self.draw_edges = status
+    
+    def show_rectangles(self, im):
+        im = self.frames[-1]
 
     def show_ROI(self, sim: MiniprojectSimulation, im, default_color=COLOR_BLACK):
         for roi in self.all_rois:
@@ -150,16 +157,15 @@ class Controller:
             im[y_draw, roi.x0:roi.x1] = default_color
             if roi.is_active:
                 if self.draw_edges:
-                    for start, end in roi.detected_segments:
-                        im[y_draw, start:end] = COLOR_RED
+                    for i in roi.edge_indices:
+                        im[y_draw, (int(i-roi.diff_width/2)):(int(i+roi.diff_width/2))] = COLOR_RED
                 
                 # Draw inner parts in GREEN
                 for start, end in roi.inner_segments:
                     im[y_draw, start:end] = COLOR_GREEN
 
-        # Draw the detected vertical obstacle height in BLUE (drawn last and thicker for visibility)
-        if self.last_vertical_segment:
-            vx, vy0, vy1 = self.last_vertical_segment
+        # Draw the detected vertical obstacle heights in BLUE (drawn last and thicker for visibility)
+        for vx, vy0, vy1 in self.last_vertical_segments:
             vx_start = max(0, vx - 1)
             vx_end = min(im.shape[1], vx + 2)
             im[vy0:vy1, vx_start:vx_end] = COLOR_BLUE
@@ -174,13 +180,11 @@ class Controller:
             detected = self.detect_line_jump_ROI(im, roi)
             results.append(detected)
 
-        # Vertical height detection based on the most central obstacle
-        target_point = self.starting_point()
-        if target_point:
-            vx, vy_start = target_point
-            self.last_vertical_segment = self.detect_vertical_obstacle_bounds(im, vx, vy_start)
-        else:
-            self.last_vertical_segment = None
+        # Vertical height detection based on the most central obstacles per side/ROI
+        target_points = self.starting_point()
+        self.last_vertical_segments = []
+        for vx, vy_start in target_points:
+            self.last_vertical_segments.append(self.detect_vertical_obstacle_bounds(im, vx, vy_start))
 
         self.show_ROI(sim, im)
         return tuple(results)
@@ -194,34 +198,32 @@ class Controller:
         y, x0, x1 = int(roi.y), roi.x0, roi.x1
         green_line = im[y, x0:x1, GREEN].astype(int)
         
-        roi.detected_segments = []
+        roi.edge_indices = []
         roi.inner_segments = []
         
         if len(green_line) < 10:
             return False
 
         # 1. Find all edge indices using the threshold
-        edge_indices = []
-        diff_width = 4
         i = 0
-        while i < len(green_line) - diff_width:
-            if self.different_intensities(green_line[i + diff_width], green_line[i], self.th_line):
+        while i < len(green_line) - roi.diff_width:
+            if self.different_intensities(green_line[i + roi.diff_width], green_line[i], self.th_line):
                 # Edge detected
-                edge_indices.append(i)
-                center = i + diff_width // 2
+                roi.edge_indices.append(i)
+                """center = i + diff_width // 2
                 # Store this segment
                 roi.detected_segments.append((
                     x0 + max(0, center - 5),
                     x0 + min(len(green_line), center + 5)
-                ))
+                ))"""
                 # Skip ahead to find the next discrete edge
-                i += 10
+                i += (roi.diff_width*2)
             else:
                 i += 1
 
         # 2. Analyze all intervals (start of line, edges, end of line) for 'inner' parts.
         # Each edge boundary allows checking for an inner part to its left and right.
-        boundary_points = [0] + [idx + 2 for idx in edge_indices] + [len(green_line)]
+        boundary_points = [0] + [idx + 2 for idx in roi.edge_indices] + [len(green_line)]
         
         for k in range(len(boundary_points) - 1):
             idx_start = boundary_points[k]
@@ -239,7 +241,7 @@ class Controller:
                 if not self.in_the_sky(np.mean(blue_segment)) and not self.in_the_grass(np.mean(segment)) and np.ptp(segment) <= 3:
                     roi.inner_segments.append((x0 + idx_start, x0 + idx_end))
 
-        roi.is_active = len(roi.detected_segments) > 0
+        roi.is_active = len(roi.edge_indices) > 0
         return roi.is_active
 
     def capture_mean_grass(self):
@@ -284,7 +286,7 @@ class Controller:
         red_v = im[:, vx, RED].astype(int)
         
         # Upward scan for upper bound
-        for y in range(int(y_start), diff, -1):
+        for y in range(int(y_start), diff, -1): #because the y-axis is "inverted" so the positive direction is toward the bottom
             
             if self.different_intensities(green_v[y - diff], green_v[y], th) or \
                self.in_the_sky(blue_v[y]) or \
@@ -341,24 +343,38 @@ class Controller:
     
     def starting_point(self):
         """
-        Identifies the x-coordinate of the midpoint of the 'inner obstacle' segment
-        that is closest to the center of the field of view (x=450).
+        Identifies the x-coordinates of the midpoints of the 'inner obstacle' segments
+        that are closest to the center for each ROI and each side (left/right).
         
         Returns:
-            tuple: (x, y) coordinates of the seed point, or None.
+            list: List of (x, y) coordinates of the seed points.
         """
         center_vision_x = (MIDDLE_LEFT + MIDDLE_RIGHT) // 2
-        best_point = None
-        min_distance = float('inf')
+        points = []
 
         for roi in self.all_rois:
+            best_left = None
+            best_right = None
+            min_dist_left = float('inf')
+            min_dist_right = float('inf')
+
             for start, end in roi.inner_segments:
                 segment_mid_x = (start + end) / 2
                 distance = abs(segment_mid_x - center_vision_x)
-                if distance < min_distance:
-                    min_distance = distance
-                    best_point = (segment_mid_x, roi.y)
-        return best_point
+                
+                if self.is_left(segment_mid_x):
+                    if distance < min_dist_left:
+                        min_dist_left = distance
+                        best_left = (segment_mid_x, roi.y)
+                else:
+                    if distance < min_dist_right:
+                        min_dist_right = distance
+                        best_right = (segment_mid_x, roi.y)
+            
+            if best_left: points.append(best_left)
+            if best_right: points.append(best_right)
+            
+        return points
 
     def is_left(self, x):
         return x < (MIDDLE_LEFT + MIDDLE_RIGHT) // 2
