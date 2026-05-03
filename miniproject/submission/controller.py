@@ -22,6 +22,11 @@ X_RIGHT = 750
 MIDDLE_LEFT = 449
 MIDDLE_RIGHT = 451
 
+# rectangles
+NB_OF_RECT = 4
+WIDTH_INCR = (X_RIGHT - X_LEFT)//NB_OF_RECT
+HEIGHT_INCR = (Y_LOW - Y_HIGH)//2
+
 # walking
 TURN_RIGHT = 1.25
 TURN_LEFT = 1/TURN_RIGHT
@@ -31,11 +36,11 @@ TURN_COEFF = 2.5
 FLIPPED_FOR_SURE = 200
 
 class Rectangle:
-    def __init__(self, center_x, center_y, width, height, color):
-        self.center_x = center_x
-        self.center_y = center_y
-        self.width = width
-        self.height = height
+    def __init__(self, x0, x1, y_top, y_bottom, color):
+        self.x0 = x0
+        self.x1 = x1
+        self.y_top = y_top
+        self.y_bottom = y_bottom
         self.color = color
 
     @property
@@ -96,13 +101,14 @@ class Controller:
             ROI("mid", (Y_HIGH + Y_LOW)//2, X_LEFT, X_RIGHT),
             ROI("low", Y_LOW, X_LEFT, X_RIGHT),
         ]
+        
         self.last_vertical_segments = []     
 
-        self.rectangle0 = Rectangle(X_LEFT*3/4 + MIDDLE_LEFT/4, (Y_HIGH + Y_LOW)//4, (MIDDLE_LEFT-X_LEFT)//2, (Y_HIGH-Y_LOW)*2, COLOR_BLACK)   
-        """self.rectangle1 = Rectangle(X_LEFT*3/4 + MIDDLE_LEFT/4, (Y_HIGH + Y_LOW)//4, (MIDDLE_LEFT-X_LEFT)//2, (Y_HIGH-Y_LOW)*2, COLOR_BLACK)   
-        self.rectangle2 = Rectangle(X_LEFT*3/4 + MIDDLE_LEFT/4, (Y_HIGH + Y_LOW)//4, (MIDDLE_LEFT-X_LEFT)//2, (Y_HIGH-Y_LOW)*2, COLOR_BLACK)   
-        self.rectangle3 = Rectangle(X_LEFT*3/4 + MIDDLE_LEFT/4, (Y_HIGH + Y_LOW)//4, (MIDDLE_LEFT-X_LEFT)//2, (Y_HIGH-Y_LOW)*2, COLOR_BLACK)   
- A compléter """
+        self.all_rectangles = []
+        for i in range(NB_OF_RECT):
+            # the "-1" is here so that the beginning of a rectangle doesn't overlapp the end of the previous one
+            self.all_rectangles.append(Rectangle(X_LEFT+(i*WIDTH_INCR)-1, X_LEFT+((i+1)*WIDTH_INCR), self.all_rois[0].y - HEIGHT_INCR, self.all_rois[2].y + HEIGHT_INCR, COLOR_BLACK))
+
         # walking inhibition
         self.k = 1
 
@@ -131,8 +137,8 @@ class Controller:
 
             else:
                 self.detect_line_jump(sim) # contains show_ROI , cleans the last_vertical_segments
-                regions = self.comparison_obstacles()
-                self.show_rectangles(im, regions)
+                self.comparison_obstacles()
+                self.show_rectangles(im)
 
         drives = np.array([self.speed*self.k, self.speed/self.k])  
         joint_angles, adhesion = self.turning_controller.step(drives)
@@ -154,12 +160,22 @@ class Controller:
         """Toggle the visibility of detected edges (red points) in the visualization."""
         self.draw_edges = status
     
-    def show_rectangles(self, regions):
-        idx_max = regions.index(max(regions))
+    def show_rectangles(self, im):
+        # Dynamically calculate adaptive vertical bounds based on current ROI positions
+        y_top = int(np.clip(self.all_rois[0].y - HEIGHT_INCR, 0, im.shape[0] - 1))
+        y_bottom = int(np.clip(self.all_rois[2].y + HEIGHT_INCR, 0, im.shape[0] - 1))
 
-        if idx_max == 0:
-            self.turn_right()
-        return idx_max
+        for rect in self.all_rectangles:
+            # Update the rectangle object to match adaptive vision
+            rect.y_top, rect.y_bottom = y_top, y_bottom
+            
+            # Draw borders with updated colors (RED for highest danger, BLACK otherwise)
+            im[rect.y_top:rect.y_bottom + 1, rect.x0] = rect.color # Left
+            im[rect.y_top:rect.y_bottom + 1, rect.x1] = rect.color # Right
+            im[rect.y_top, rect.x0:rect.x1 + 1] = rect.color       # Top
+            im[rect.y_bottom, rect.x0:rect.x1 + 1] = rect.color    # Bottom
+
+        return 0
 
     def show_ROI(self, sim: MiniprojectSimulation, im, default_color=COLOR_BLACK):
         for roi in self.all_rois:
@@ -393,27 +409,30 @@ class Controller:
         return x <= ((MIDDLE_LEFT + X_LEFT)/2) or x >= ((MIDDLE_RIGHT + X_RIGHT)/2)
 
     def comparison_obstacles(self):
-        region0 = 0
-        region1 = 0
-        region2 = 0
-        region3 = 0
+        regions = np.zeros(NB_OF_RECT)
 
         for i in range(len(self.last_vertical_segments)): # contains (x, y_top, y_bottom)
             x = self.last_vertical_segments[i][0]
-            height = self.last_vertical_segments[i][1]-self.last_vertical_segments[i][2]
+            height = self.last_vertical_segments[i][2]-self.last_vertical_segments[i][1]
 
             if self.is_left(x):
                 if self.is_end_of_roi(x):
-                    region0 += height
+                    regions[0] += height
                 else:
-                    region1 += height
+                    regions[1] += height
             else:
                 if self.is_end_of_roi(x):
-                    region2 += height
+                    regions[3] += height
                 else:
-                    region3 += height
+                    regions[2] += height
 
-            return (region0, region1, region2, region3)
+        idx_max = np.argmax(regions)
+        for i in range(NB_OF_RECT):
+            if i == idx_max:
+                self.all_rectangles[i].color = COLOR_RED
+            else:
+                self.all_rectangles[i].color = COLOR_BLACK
+        return 0
 
     def turn_right(self): self.k = TURN_COEFF
     def turn_left(self): self.k = 1/TURN_COEFF
