@@ -1,7 +1,7 @@
 import numpy as np
 from miniproject.simulation import MiniprojectSimulation
 
-
+# VERSION INTACTE AVANT MERGE DETECTION OBSTACLES
 class Controller:
     def __init__(self, sim: MiniprojectSimulation):
         # you may also implement your own turning controller
