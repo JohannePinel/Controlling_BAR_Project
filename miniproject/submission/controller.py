@@ -157,6 +157,7 @@ class Controller:
             self.detect_slope_proprioceptive(sim)
             self.compute_convexe_concave()
 
+        # Color vision
         if self.count % VISION_RATE == 0:
             im = self.color_vision(sim)
 
@@ -168,11 +169,12 @@ class Controller:
             if self.mode == "tuning ROI" or self.mode == "tuning slope":
                 self.show_ROI(sim, self.frames[-1])
 
-            else: # Obstacle detection
+        # Obstacle detection
+            else: 
                 self.detect_line_jump(sim)
                 self.decide_avoidance_strategy()
         
-        
+        # Obstacle avoidance
         if self.avoiding_obstacle:
             if self.avoidance_direction == -1:
                 self.turn_left()
@@ -275,10 +277,17 @@ class Controller:
         return 0
 
     def show_ROI(self, sim: MiniprojectSimulation, im, default_color=COLOR_BLACK):
+        """ 
+        The ROIs are horizontal lines in the fly's filed of view. It is along them that the osbatcle detection works.
+        Meaning by that: we will detect abrupt varaition of green intensity along these lines ("edges"), to conclude 
+        that we may have encountered a boudary between grass and obstacle.
+
+        These edges are shown in RED in the vision video.
+        """
         for roi in self.all_rois:
             y_draw = int(np.clip(roi.y, 0, im.shape[0]-1))
             im[y_draw, roi.x0:roi.x1] = default_color
-            if roi.is_active:
+            if roi.is_active: # an roi is active is an edge was detected along it
                 if self.draw_edges:
                     for i in roi.edge_indices:
                         im[y_draw, (int(i-roi.diff_width/2)):(int(i+roi.diff_width/2))] = COLOR_RED
@@ -571,7 +580,7 @@ class Controller:
         import matplotlib.pyplot as plt
         
         if len(self.trajectory) == 0:
-            print("⚠️ Aucune trajectoire à tracer")
+            print(" Aucune trajectoire à tracer")
             return
         
         # Extraire x et y de la trajectoire
