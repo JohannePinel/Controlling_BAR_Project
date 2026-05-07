@@ -131,6 +131,17 @@ class Controller:
         self.obs = False
         self.odor_drives = np.ones(2)
 
+        # ======== wind analysis ========
+        self.wind_state = "NONE"
+        self.step_count = 0
+        self.t_last_odor = 0          # timestep of last odor detection
+        self.odor_state = "LOST"      # "TRACKING", "RECOVERING", "LOST"
+        self.prev_state = "LOST"
+        self.LOST_THRESHOLD = 38      # from paper, 25-38 steps
+        self.RECOVERING_THRESHOLD = 12 
+        self.odor_memory_fast = 0.0        # drives turn decisions
+        self.alpha_fast = 2/(8+1)   # ~0.22
+
 ###################################################################################
 ################################# STEP FUNCTION ###################################
 ###################################################################################
@@ -143,7 +154,8 @@ class Controller:
         # ======== Odor detection ========
         if self.count % OLFACTION_RATE == 2:
             olfaction = sim.get_olfaction(sim.fly.name)
-            
+            #print(f"olfaction shape: {olfaction.shape}, values: {olfaction}")
+
             if self.odor_smooth is None:
                 self.odor_smooth = olfaction
             else:
@@ -151,7 +163,37 @@ class Controller:
 
             self.odor_drives = odor_to_drives(self.odor_smooth) * 3 #fois x to increase the effect of the odor on the speed, otherwise the fly is too much focused on the obstacle avoidance and doesn't move enough towards the target
         
-                
+        # track when odor was last sensed 
+        #mean_odor = np.mean(self.odor_smooth) if self.odor_smooth is not None else 0.0
+        #self.odor_memory_fast = (1 - self.alpha_fast) * self.odor_memory_fast + self.alpha_fast * mean_odor
+        mean_odor = np.max(self.odor_smooth) if self.odor_smooth is not None else 0.0
+        #print("mean odor is " , mean_odor)
+        ODOR_DETECTION_THRESHOLD = 1e-8 
+        if mean_odor > ODOR_DETECTION_THRESHOLD:
+            #print("we are tracking")
+            self.t_last_odor = self.count
+            if self.count < 3 : print("found immediatly")
+
+        steps_since_odor = self.count - self.t_last_odor
+
+        if 1 < steps_since_odor <= self.RECOVERING_THRESHOLD:
+            self.odor_state = "TRACKING"
+            
+        elif self.RECOVERING_THRESHOLD < steps_since_odor < self.LOST_THRESHOLD:
+            self.odor_state = "RECOVERING"
+        else:
+            self.odor_state = "LOST"
+
+        if self.odor_state != self.prev_state:
+            if self.odor_state == "TRACKING":
+                print(f"Step {self.count}: FOUND!")
+            elif self.odor_state == "RECOVERING":
+                print(f"Step {self.count}: WE'RE LOOSING IT")
+            elif self.odor_state == "LOST":
+                print(f"Step {self.count}: LO0ST")
+            print(f"Step {self.count}: {self.odor_state} (mean_odor={mean_odor:.6f})")
+            self.prev_state = self.odor_state
+            
         # ======== Slope detection ========
         if self.count % PITCH_DETECTION_RATE == 1: # if was 0, the pitch or the derivative pitch would be reset to 0 right before the color_vision() starts
             self.detect_slope_proprioceptive(sim)
@@ -195,9 +237,31 @@ class Controller:
                 self.avoidance_direction = 0
                 self.no_turn()
 
+        # ======== Wind analysis ========
+        self.step_count = self.step_count+1
+        if self.step_count % 5000 == 0 and self.step_count > 0:
+            # get current antenna data
+            antenna_data = sim.get_antenna_data(sim.fly.name)
+            
+            quat_l = antenna_data['l']['qpos']
+            quat_r = antenna_data['r']['qpos']
+            
+            euler_l = Rotation.from_quat([quat_l[1], quat_l[2], quat_l[3], quat_l[0]]).as_euler('xyz', degrees=True)
+            euler_r = Rotation.from_quat([quat_r[1], quat_r[2], quat_r[3], quat_r[0]]).as_euler('xyz', degrees=True)
+            
+            pitch_diff = euler_l[0] - euler_r[0]
+            roll_diff  = euler_l[1] - euler_r[1]
+            yaw_diff   = euler_l[2] - euler_r[2]
+            
+            predicted_direction = wind_analysis(self, pitch_diff, roll_diff, yaw_diff)
+            print(f"Step {self.step_count}: predicted wind direction = {predicted_direction}°, so {self.wind_state}")
+
+
         drives = self.speed * self.odor_drives * np.array([self.k, 1/self.k])
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
+    
+
 
 ###################################################################################
 ########################### Obstacle Avoidance Strategy ###########################
@@ -221,14 +285,14 @@ class Controller:
             self.danger_zone_index = idx_max
             
             if idx_max == 0 or idx_max == 1:  # Obstacle à gauche
-                print("danger à gauche, je vire à droite", max_danger)
+                #print("danger à gauche, je vire à droite", max_danger)
 
                 self.avoidance_direction = 1
                 if idx_max == 1: 
                     self.speed = SUSPICIOUS * 0.5 * 1/idx_max # plus l'obstacle est proche du centre, plus la mouche ralentit pour éviter
             else: # Obstacle à droite
                 self.avoidance_direction = -1
-                print("danger à droite, je vire à gauche", max_danger)
+                #print("danger à droite, je vire à gauche", max_danger)
                 if idx_max == 2: 
                     self.speed = SUSPICIOUS * 0.5 *1/idx_max
             
@@ -746,4 +810,38 @@ def odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80):
 
 
 
-    
+##########################################################################################
+############################### Wind analysis functions ##################################
+##########################################################################################
+def wind_analysis(self, pitch_diff, roll_diff, yaw_diff) :
+    wind_direction = 0
+    if pitch_diff < -15 : 
+        wind_direction = 0
+        self.wind_state = "INTERFERING"
+    elif pitch_diff > -8 : 
+        wind_direction = 180
+        self.wind_state = "SILENT"
+    else :
+        if roll_diff > 0:
+            if roll_diff < 1 : 
+                wind_direction = 270
+                self.wind_state = "INTERFERING"
+            else :
+                if yaw_diff > 0 : 
+                    wind_direction = 45
+                    self.wind_state = "INTERFERING"
+                else : 
+                    wind_direction = 135
+                    self.wind_state = "SILENT"
+        if roll_diff < 0:
+            if roll_diff > -1 : 
+                wind_direction = 90
+                self.wind_state = "INTERFERING"
+            else :
+                if yaw_diff > 0 : 
+                    wind_direction = 315
+                    self.wind_state = "INTERFERING"
+                else : 
+                    wind_direction = 225
+                    self.wind_state = "SILENT"
+    return wind_direction
