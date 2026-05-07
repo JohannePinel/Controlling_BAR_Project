@@ -20,7 +20,8 @@ OLFACTION_RATE = 100
 
 # ROIs
 Y_LOW = 350
-Y_HIGH = 250 # In the color vision, the y axis point toward the bottom
+Y_HIGH = 250 
+Y_ADITIONAL = 200 # In the color vision, the y axis point toward the bottom
 X_LEFT = 140
 X_RIGHT = 750
 MIDDLE_LEFT = 449
@@ -101,7 +102,8 @@ class Controller:
         self.th_line = threshold_line
         self.window = 16
         self.last_vertical_segments = []   
-        self.all_rois = [
+        self.all_rois = [ 
+                ROI("HIGH++", Y_ADITIONAL, X_LEFT, X_RIGHT),
                 ROI("high", Y_HIGH, X_LEFT, X_RIGHT),
                 ROI("mid", (Y_HIGH + Y_LOW)//2, X_LEFT, X_RIGHT),
                 ROI("low", Y_LOW, X_LEFT, X_RIGHT),
@@ -473,7 +475,7 @@ class Controller:
                 i += 1
 
         # 2. Analyze all intervals (start of line, edges, end of line) for 'inner' parts.
-        # Each edge boundary allows checking for an inner part to its left and right.
+        # Each edge boundary allows checking for an inner part to BOTH its left and right.
         boundary_points = [0] + [idx + 2 for idx in roi.edge_indices] + [len(green_line)]
         
         for k in range(len(boundary_points) - 1):
