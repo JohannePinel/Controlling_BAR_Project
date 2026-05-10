@@ -18,14 +18,18 @@ VISION_RATE = 200
 PITCH_DETECTION_RATE = 50
 OLFACTION_RATE = 100
 
-# ROIs
+# ROI
 Y_LOW = 350
 Y_HIGH = 250 
+Y_LOW_DRAG = 250
+Y_HIGH_DRAG = 50
 Y_ADITIONAL = 200 # In the color vision, the y axis point toward the bottom
 X_LEFT = 140
 X_RIGHT = 750
 MIDDLE_LEFT = 449
 MIDDLE_RIGHT = 451
+
+
 
 # rectangles
 NB_OF_RECT = 4
@@ -108,6 +112,11 @@ class Controller:
                 ROI("mid", (Y_HIGH + Y_LOW)//2, X_LEFT, X_RIGHT),
                 ROI("low", Y_LOW, X_LEFT, X_RIGHT),
             ]
+        self.all_rois_drag = [
+            ROI(f"drag_{i}", int(y), X_LEFT, X_RIGHT)
+            for i, y in enumerate(np.linspace(Y_HIGH_DRAG, Y_LOW_DRAG, 5))
+        ]
+
         self.all_rectangles = []
         for i in range(NB_OF_RECT):
             self.all_rectangles.append(Rectangle(X_LEFT+(i*WIDTH_INCR)-1, X_LEFT+((i+1)*WIDTH_INCR), self.all_rois_obst[0].y - HEIGHT_INCR, self.all_rois_obst[2].y + HEIGHT_INCR, COLOR_BLACK))
@@ -169,7 +178,7 @@ class Controller:
             self.adapts_ROI_to_slope() 
             
             if self.mode == "tuning ROI" or self.mode == "tuning slope":
-                self.show_ROI(sim, self.frames[-1])
+                self.show_ROI_obst(sim, self.frames[-1])
 
 
         # ======== Obstacle detection ========
@@ -374,7 +383,7 @@ class Controller:
 
         return 0
 
-    def show_ROI(self, sim: MiniprojectSimulation, im, default_color=COLOR_BLACK):
+    def show_ROI_obst(self, sim: MiniprojectSimulation, im, default_color=COLOR_BLACK, show_lines=False):
         """ 
         The ROIs are horizontal lines in the fly's filed of view. It is along them that the osbatcle detection works.
         
@@ -395,7 +404,8 @@ class Controller:
         # Draw edges in RED
         for roi in self.all_rois_obst:
             y_draw = int(np.clip(roi.y, 0, im.shape[0]-1))
-            # im[y_draw, roi.x0:roi.x1] = default_color => uncomment to see the horizontal black lines
+            if show_lines :
+                im[y_draw, roi.x0:roi.x1] = default_color # to see the horizontal black lines along which we detect the edges
             if roi.is_active: # an roi is active is an edge was detected along it
                 if self.draw_edges:
                     for i in roi.edge_indices:
@@ -412,6 +422,8 @@ class Controller:
             im[vy0:vy1, vx_start:vx_end] = COLOR_BLUE
             if self.obs == True:
                 im[vy0:vy1, vx_start:vx_end] = COLOR_RED
+
+        
 
         return im
     
@@ -443,7 +455,7 @@ class Controller:
                 self.last_vertical_segments.append(res)
             # A vertical segment is basicall just (x-pos, y-top, y-bottom)
 
-        self.show_ROI(sim, im)
+        self.show_ROI_obst(sim, im)
         return tuple(results)
 
     def detect_line_jump_ROI(self, im, roi):
@@ -703,7 +715,7 @@ class Controller:
 
     def is_left(self, x): 
         """
-        As said in show_ROI, for obstacles detection, only the center part of the fly's field of view 
+        As said in show_ROI_obst, for obstacles detection, only the center part of the fly's field of view 
         is interesiting. This center part is itself divided in 4 rectangular regions. As we have 4 regions, 
         it is better in terms of computational power to have only 2 boolean returning functions to determine 
         in which region belongs a certain point.
