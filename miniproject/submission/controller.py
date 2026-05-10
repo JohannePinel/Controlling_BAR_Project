@@ -452,6 +452,7 @@ class Controller:
         """
         y, x0, x1 = int(roi.y), roi.x0, roi.x1
         green_line = im[y, x0:x1, GREEN].astype(int)
+        blue_line = im[y, x0:x1, BLUE].astype(int)
         
         roi.edge_indices = []
         roi.inner_segments = []
@@ -490,7 +491,7 @@ class Controller:
             
             if check_end > check_start + 2:
                 segment = green_line[check_start:check_end]
-                blue_segment = im[y, check_start:check_end, BLUE].astype(int) 
+                blue_segment = blue_line[check_start:check_end]
                 # blue segment is just to capture blue values along a segment, for the check in it is in the sky
 
                 # Check for: not in the sky AND not in the grass AND "stable" intensity 
@@ -548,9 +549,7 @@ class Controller:
         return False
     
     def in_the_sky(self, value):
-        if value > 10:
-            return True
-        return False
+        return value > 10
 
     def in_the_black(self, point): 
        return all(v < 30 for v in point)
