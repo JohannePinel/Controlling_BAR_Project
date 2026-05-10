@@ -30,7 +30,7 @@ X_RIGHT = 750
 X_RIGHT_DRAG = 900
 MIDDLE_LEFT = 449
 MIDDLE_RIGHT = 451
-NB_OF_ROI_DRAG = 16
+NB_OF_ROI_DRAG = 22
 
 
 # rectangles
@@ -178,16 +178,13 @@ class Controller:
                 self.recover_fly(im)
 
             self.adapts_ROI_to_slope() 
-            
-            if self.mode == "tuning ROI" or self.mode == "tuning slope":
-                self.show_ROI_obst(sim, self.frames[-1])
 
 
         # ======== Obstacle detection ========
-            else: 
-                self.detect_line_jump(sim)
-                self.decide_avoidance_strategy()
-                self.show_rectangles(im)
+            
+            self.detect_line_jump(sim)
+            self.decide_avoidance_strategy()
+            self.show_rectangles(im)
 
         
         # ======== Obstacle avoidance ========
@@ -208,6 +205,16 @@ class Controller:
                 self.avoidance_direction = 0
                 self.no_turn()
 
+        
+        # ======== Visualization ========
+        flag = True if self.mode == "tuning ROI" or self.mode == "tuning slope" else False
+
+        if self.frames: # because is empty at the first steps
+            self.show_ROI_obst(self.frames[-1], show_lines = flag)
+            self.show_ROI_drag(self.frames[-1], show_lines = flag)
+
+
+        # ======== Instructions to body =======
         drives = self.speed * self.odor_drives * np.array([self.k, 1/self.k])
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
@@ -385,7 +392,7 @@ class Controller:
 
         return 0
 
-    def show_ROI_obst(self, sim: MiniprojectSimulation, im, default_color=COLOR_BLACK, show_lines=False):
+    def show_ROI_obst(self, im, default_color=COLOR_BLACK, show_lines=False):
         """ 
         The ROIs are horizontal lines in the fly's filed of view. It is along them that the osbatcle detection works.
         
@@ -415,30 +422,58 @@ class Controller:
         # Draw inner parts in GREEN
                 for start, end in roi.inner_segments:
                     im[y_draw, start:end] = COLOR_GREEN
+        
+        # Draw the heights in BLUE (drawn last and thicker for visibility)
+        for vx, vy0, vy1 in self.last_vertical_segments:
+            # vx is the x-pos of the height ; vy0 and vy1 are its vertical boundaries
+            vx_start = max(0, vx - 1)
+            vx_end = min(im.shape[1], vx + 2)
+            im[vy0:vy1, vx_start:vx_end] = COLOR_BLUE
+            if self.obs == True:
+                im[vy0:vy1, vx_start:vx_end] = COLOR_RED
+        return im
 
+    def show_ROI_drag(self, im, default_color=COLOR_BLACK, show_lines=False):
         # Draw dragonfly ROIs in black and edges in GREEN
         for roi in self.all_rois_drag:
             y_draw = int(np.clip(roi.y, 0, im.shape[0]-1))
-            im[y_draw, roi.x0:roi.x1] = default_color
+            if show_lines :
+                im[y_draw, roi.x0:roi.x1] = default_color
             if roi.is_active:
                 if self.draw_edges:
                     for i in roi.edge_indices:
                         im[y_draw, (int(roi.x0 + i - roi.diff_width/2)):(int(roi.x0 + i + roi.diff_width/2))] = COLOR_GREEN
                 
                 # Draw blue square between pairs of edges (bounding box for the dragonfly head)
-                for k in range(0, len(roi.edge_indices) - 1, 2):
-                    x_l = int(np.clip(roi.x0 + roi.edge_indices[k], 0, im.shape[1] - 1))
-                    x_r = int(np.clip(roi.x0 + roi.edge_indices[k+1], 0, im.shape[1] - 1))
-                    side = x_r - x_l
-                    if side > 0:
-                        y_mid = int(roi.y)
-                        y_t = int(np.clip(y_mid - side // 2, 0, im.shape[0] - 1))
-                        y_b = int(np.clip(y_mid + side // 2, 0, im.shape[0] - 1))
-                        
-                        im[y_t:y_b + 1, x_l] = COLOR_BLUE   # Left border
-                        im[y_t:y_b + 1, x_r] = COLOR_BLUE   # Right border
-                        im[y_t, x_l:x_r + 1] = COLOR_BLUE   # Top border
-                        im[y_b, x_l:x_r + 1] = COLOR_BLUE   # Bottom border
+                if len(roi.edge_indices) >= 2:
+                    # Merge segments if they are closer than 50 units
+                    merged_segments = []
+                    curr_l = roi.edge_indices[0]
+                    curr_r = roi.edge_indices[1]
+                    
+                    for k in range(2, len(roi.edge_indices) - 1, 2):
+                        next_l = roi.edge_indices[k]
+                        next_r = roi.edge_indices[k+1]
+                        if (next_l - curr_r) < 50:
+                            curr_r = next_r
+                        else:
+                            merged_segments.append((curr_l, curr_r))
+                            curr_l, curr_r = next_l, next_r
+                    merged_segments.append((curr_l, curr_r))
+
+                    for l, r in merged_segments:
+                        x_l = int(np.clip(roi.x0 + l, 0, im.shape[1] - 1))
+                        x_r = int(np.clip(roi.x0 + r, 0, im.shape[1] - 1))
+                        side = x_r - x_l
+                        if side > 0:
+                            y_mid = int(roi.y)
+                            y_t = int(np.clip(y_mid - side // 2, 0, im.shape[0] - 1))
+                            y_b = int(np.clip(y_mid + side // 2, 0, im.shape[0] - 1))
+                            
+                            im[y_t:y_b + 1, x_l] = COLOR_BLUE   # Left border
+                            im[y_t:y_b + 1, x_r] = COLOR_BLUE   # Right border
+                            im[y_t, x_l:x_r + 1] = COLOR_BLUE   # Top border
+                            im[y_b, x_l:x_r + 1] = COLOR_BLUE   # Bottom border
 
         # Draw the heights in BLUE (drawn last and thicker for visibility)
         for vx, vy0, vy1 in self.last_vertical_segments:
@@ -485,7 +520,6 @@ class Controller:
                 self.last_vertical_segments.append(res)
             # A vertical segment is basicall just (x-pos, y-top, y-bottom)
 
-        self.show_ROI_obst(sim, im)
         return tuple(results)
 
     def detect_line_jump_ROI(self, im, roi):
