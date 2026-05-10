@@ -20,17 +20,17 @@ OLFACTION_RATE = 100
 
 # ROI
 Y_LOW = 350
-Y_LOW_DRAG = 350
+Y_LOW_DRAG = 450
 Y_HIGH = 250 
-Y_HIGH_DRAG = 220
+Y_HIGH_DRAG = 150
 Y_ADITIONAL = 200 # In the color vision, the y axis point toward the bottom
 X_LEFT = 140
-X_LEFT_DRAG = 50
+X_LEFT_DRAG = 0
 X_RIGHT = 750
-X_RIGHT_DRAG = 850
+X_RIGHT_DRAG = 900
 MIDDLE_LEFT = 449
 MIDDLE_RIGHT = 451
-
+NB_OF_ROI_DRAG = 16
 
 
 # rectangles
@@ -116,7 +116,7 @@ class Controller:
             ]
         self.all_rois_drag = [
             ROI(f"drag_{i}", int(y), X_LEFT_DRAG, X_RIGHT_DRAG)
-            for i, y in enumerate(np.linspace(Y_HIGH_DRAG, Y_LOW_DRAG, 6))
+            for i, y in enumerate(np.linspace(Y_HIGH_DRAG, Y_LOW_DRAG, NB_OF_ROI_DRAG))
         ]
 
         self.all_rectangles = []
@@ -721,6 +721,10 @@ class Controller:
         coeff *= self.pitch_weight
 
         for roi in self.all_rois_obst:
+            new_y = roi.base_y + coeff
+            roi.y = np.clip(new_y, 75, 475)
+            
+        for roi in self.all_rois_drag:
             new_y = roi.base_y + coeff
             roi.y = np.clip(new_y, 75, 475)
             
