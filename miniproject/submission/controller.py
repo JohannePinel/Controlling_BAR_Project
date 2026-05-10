@@ -569,8 +569,8 @@ class Controller:
         # Upward scan for upper bound
         for y in range(int(y_start), diff, -1): # also use "diff" to go toward a y very high
             
-            # Check if we reached either: an edge (similarly to the edge detection but vertically this time) ; the sky ; part that receives no lignt signal
-            if self.different_intensities(green_v[y - diff], green_v[y], th) or \
+            # Check if we reached either: an edge (this time, we compare to the inital point, so we can detect the end of the obstacle even if the thansition with the grass is smooth) ; the sky ; part that receives no lignt signal
+            if self.different_intensities(green_v[y - diff], green_v[int(y_start)], th) or \
                self.in_the_sky(blue_v[y]) or \
                self.in_the_black([red_v[y], green_v[y], blue_v[y]]):
                 y_top = y
@@ -584,7 +584,7 @@ class Controller:
         for y in range(int(y_start), im.shape[0] - diff):
 
             # Same check. Shouldn't reach sky parts in thsi direction, but we never know, maybe there will be a situation where the blade of grass is very very bent
-            if self.different_intensities(green_v[y - diff], green_v[y], th) or \
+            if self.different_intensities(green_v[y + diff], green_v[int(y_start)], th) or \
                self.in_the_black([red_v[y], green_v[y], blue_v[y]]):
                 y_bottom = y
                 break
