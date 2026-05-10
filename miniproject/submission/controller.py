@@ -424,6 +424,21 @@ class Controller:
                 if self.draw_edges:
                     for i in roi.edge_indices:
                         im[y_draw, (int(roi.x0 + i - roi.diff_width/2)):(int(roi.x0 + i + roi.diff_width/2))] = COLOR_GREEN
+                
+                # Draw blue square between pairs of edges (bounding box for the dragonfly head)
+                for k in range(0, len(roi.edge_indices) - 1, 2):
+                    x_l = int(np.clip(roi.x0 + roi.edge_indices[k], 0, im.shape[1] - 1))
+                    x_r = int(np.clip(roi.x0 + roi.edge_indices[k+1], 0, im.shape[1] - 1))
+                    side = x_r - x_l
+                    if side > 0:
+                        y_mid = int(roi.y)
+                        y_t = int(np.clip(y_mid - side // 2, 0, im.shape[0] - 1))
+                        y_b = int(np.clip(y_mid + side // 2, 0, im.shape[0] - 1))
+                        
+                        im[y_t:y_b + 1, x_l] = COLOR_BLUE   # Left border
+                        im[y_t:y_b + 1, x_r] = COLOR_BLUE   # Right border
+                        im[y_t, x_l:x_r + 1] = COLOR_BLUE   # Top border
+                        im[y_b, x_l:x_r + 1] = COLOR_BLUE   # Bottom border
 
         # Draw the heights in BLUE (drawn last and thicker for visibility)
         for vx, vy0, vy1 in self.last_vertical_segments:
@@ -812,4 +827,3 @@ def odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80):
 #########################################################################################################
 ######################################## DRAGONFLY DETECTION ############################################
 #########################################################################################################
-
