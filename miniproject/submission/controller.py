@@ -102,7 +102,7 @@ class Controller:
         self.th_line = threshold_line
         self.window = 16
         self.last_vertical_segments = []   
-        self.all_rois = [ 
+        self.all_rois_obst = [ 
                 ROI("HIGH++", Y_ADITIONAL, X_LEFT, X_RIGHT),
                 ROI("high", Y_HIGH, X_LEFT, X_RIGHT),
                 ROI("mid", (Y_HIGH + Y_LOW)//2, X_LEFT, X_RIGHT),
@@ -110,7 +110,7 @@ class Controller:
             ]
         self.all_rectangles = []
         for i in range(NB_OF_RECT):
-            self.all_rectangles.append(Rectangle(X_LEFT+(i*WIDTH_INCR)-1, X_LEFT+((i+1)*WIDTH_INCR), self.all_rois[0].y - HEIGHT_INCR, self.all_rois[2].y + HEIGHT_INCR, COLOR_BLACK))
+            self.all_rectangles.append(Rectangle(X_LEFT+(i*WIDTH_INCR)-1, X_LEFT+((i+1)*WIDTH_INCR), self.all_rois_obst[0].y - HEIGHT_INCR, self.all_rois_obst[2].y + HEIGHT_INCR, COLOR_BLACK))
                                                 # the "-1" is here so that the beginning of a rectangle do not 
                                                 # overlapp the end of the previous one  
 
@@ -358,8 +358,8 @@ class Controller:
         The one that has the most dangerous obstacles will appear in red in the vision videoy.
         """
         # Dynamically calculate adaptive vertical bounds based on current ROI positions
-        y_top = int(np.clip(self.all_rois[0].y - HEIGHT_INCR, 0, im.shape[0] - 1))
-        y_bottom = int(np.clip(self.all_rois[2].y + HEIGHT_INCR, 0, im.shape[0] - 1))
+        y_top = int(np.clip(self.all_rois_obst[0].y - HEIGHT_INCR, 0, im.shape[0] - 1))
+        y_bottom = int(np.clip(self.all_rois_obst[2].y + HEIGHT_INCR, 0, im.shape[0] - 1))
 
         for rect in self.all_rectangles: # all_rectangles = the 4 "central regions"
             rect.y_top, rect.y_bottom = y_top, y_bottom
@@ -393,7 +393,7 @@ class Controller:
         """
 
         # Draw edges in RED
-        for roi in self.all_rois:
+        for roi in self.all_rois_obst:
             y_draw = int(np.clip(roi.y, 0, im.shape[0]-1))
             # im[y_draw, roi.x0:roi.x1] = default_color => uncomment to see the horizontal black lines
             if roi.is_active: # an roi is active is an edge was detected along it
@@ -430,7 +430,7 @@ class Controller:
         results = []
 
         # Check which ROI crosses an obstacle. This check also activates other detection functions for each ROIs
-        for roi in self.all_rois: 
+        for roi in self.all_rois_obst: 
             detected = self.detect_line_jump_ROI(im, roi) # boolean wether there is an obstacle crossing it or not.
             results.append(detected)
 
@@ -438,7 +438,9 @@ class Controller:
         target_points = self.starting_point() # the center of each inner sgements
         self.last_vertical_segments = [] # all the heights
         for vx, vy_start in target_points:
-            self.last_vertical_segments.append(self.detect_vertical_obstacle_bounds(im, vx, vy_start))
+            res = self.detect_vertical_obstacle_bounds(im, vx, vy_start)
+            if res is not None:
+                self.last_vertical_segments.append(res)
             # A vertical segment is basicall just (x-pos, y-top, y-bottom)
 
         self.show_ROI(sim, im)
@@ -519,7 +521,7 @@ class Controller:
         red_v = im[:, vx, RED].astype(int)
 
         # Upward scan for upper bound
-        for y in range(int(y_start), diff, -1): 
+        for y in range(int(y_start), diff, -1): # also use "diff" to go toward a y very high
             
             # Check if we reached either: an edge (similarly to the edge detection but vertically this time) ; the sky ; part that receives no lignt signal
             if self.different_intensities(green_v[y - diff], green_v[y], th) or \
@@ -528,6 +530,10 @@ class Controller:
                 y_top = y
                 break
         
+        # Discard if the obstacle only goes downward (it's is to avoid a false positive returnong a very big height as it would just continue in the grass all over the image)
+        if y_start - y_top < 13:
+            return None
+            
         # Downward scan for lower bound
         for y in range(int(y_start), im.shape[0] - diff):
 
@@ -619,7 +625,7 @@ class Controller:
         """
         Returns : just a boolean wether the fly is flipped or not
         """
-        for roi in self.all_rois:
+        for roi in self.all_rois_obst:
             blue_line = im[int(roi.y), roi.x0:roi.x1, BLUE].astype(int)
             if np.any(blue_line > 0):
                 if self.maybe_flipped >= FLIPPED_FOR_SURE:   
@@ -650,7 +656,7 @@ class Controller:
         coeff = self.pitch_derivative if self.mode == "adapts_ROI derivative" else self.pitch
         coeff *= self.pitch_weight
 
-        for roi in self.all_rois:
+        for roi in self.all_rois_obst:
             new_y = roi.base_y + coeff
             roi.y = np.clip(new_y, 75, 475)
             
@@ -671,7 +677,7 @@ class Controller:
         center_vision_x = (MIDDLE_LEFT + MIDDLE_RIGHT) // 2
         points = []
 
-        for roi in self.all_rois:
+        for roi in self.all_rois_obst:
             best_left = None
             best_right = None
             min_dist_left = float('inf')
@@ -749,4 +755,4 @@ def odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80):
 #########################################################################################################
 ######################################## DRAGONFLY DETECTION ############################################
 #########################################################################################################
-    
+print('ROI_obst')
