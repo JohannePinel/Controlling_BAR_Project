@@ -20,12 +20,14 @@ OLFACTION_RATE = 100
 
 # ROI
 Y_LOW = 350
+Y_LOW_DRAG = 350
 Y_HIGH = 250 
-Y_LOW_DRAG = 250
-Y_HIGH_DRAG = 50
+Y_HIGH_DRAG = 220
 Y_ADITIONAL = 200 # In the color vision, the y axis point toward the bottom
 X_LEFT = 140
+X_LEFT_DRAG = 50
 X_RIGHT = 750
+X_RIGHT_DRAG = 850
 MIDDLE_LEFT = 449
 MIDDLE_RIGHT = 451
 
@@ -102,7 +104,7 @@ class Controller:
         self.prev_pitch = 5 # if it was 0, the first computation of the pitch_derivative is too high and 
                             # the function adapts_ROI_to_slope wants to put the ROI to a height which is above the limit of the frame (512x900)
 
-        # ========Obstacles detection parameters========
+        # ========Detection parameters========
         self.th_line = threshold_line
         self.window = 16
         self.last_vertical_segments = []   
@@ -113,8 +115,8 @@ class Controller:
                 ROI("low", Y_LOW, X_LEFT, X_RIGHT),
             ]
         self.all_rois_drag = [
-            ROI(f"drag_{i}", int(y), X_LEFT, X_RIGHT)
-            for i, y in enumerate(np.linspace(Y_HIGH_DRAG, Y_LOW_DRAG, 5))
+            ROI(f"drag_{i}", int(y), X_LEFT_DRAG, X_RIGHT_DRAG)
+            for i, y in enumerate(np.linspace(Y_HIGH_DRAG, Y_LOW_DRAG, 6))
         ]
 
         self.all_rectangles = []
@@ -409,10 +411,19 @@ class Controller:
             if roi.is_active: # an roi is active is an edge was detected along it
                 if self.draw_edges:
                     for i in roi.edge_indices:
-                        im[y_draw, (int(i-roi.diff_width/2)):(int(i+roi.diff_width/2))] = COLOR_RED
+                        im[y_draw, (int(roi.x0 + i - roi.diff_width/2)):(int(roi.x0 + i + roi.diff_width/2))] = COLOR_RED
         # Draw inner parts in GREEN
                 for start, end in roi.inner_segments:
                     im[y_draw, start:end] = COLOR_GREEN
+
+        # Draw dragonfly ROIs in black and edges in GREEN
+        for roi in self.all_rois_drag:
+            y_draw = int(np.clip(roi.y, 0, im.shape[0]-1))
+            im[y_draw, roi.x0:roi.x1] = default_color
+            if roi.is_active:
+                if self.draw_edges:
+                    for i in roi.edge_indices:
+                        im[y_draw, (int(roi.x0 + i - roi.diff_width/2)):(int(roi.x0 + i + roi.diff_width/2))] = COLOR_GREEN
 
         # Draw the heights in BLUE (drawn last and thicker for visibility)
         for vx, vy0, vy1 in self.last_vertical_segments:
@@ -445,6 +456,10 @@ class Controller:
         for roi in self.all_rois_obst: 
             detected = self.detect_line_jump_ROI(im, roi) # boolean wether there is an obstacle crossing it or not.
             results.append(detected)
+
+        # Check dragonfly ROIs
+        for roi in self.all_rois_drag:
+            self.detect_line_jump_ROIdrag(im, roi)
 
         # Compute the vertical segment (= the approx. height of an obstacle) out of each starting point
         target_points = self.starting_point() # the center of each inner sgements
@@ -514,6 +529,7 @@ class Controller:
 
         roi.is_active = len(roi.edge_indices) > 0
         return roi.is_active
+    
 
     def detect_vertical_obstacle_bounds(self, im, x, y_start):
         """
@@ -556,6 +572,27 @@ class Controller:
                 break
                 
         return (vx, y_top, y_bottom)
+    
+    
+    def detect_line_jump_ROIdrag(self, im, roi):
+        """
+        Detects dragonfly head boundaries using vectorized color thresholding.
+        Efficiently finds regions with high red and low green/blue intensity.
+        """
+        y, x0, x1 = int(roi.y), roi.x0, roi.x1
+        line_rgb = im[y, x0:x1].astype(int)
+        
+        # Vectorized check: Red > 100, Green < 50, Blue < 50
+        is_red = (line_rgb[:, RED] > 100) & (line_rgb[:, GREEN] < 50) & (line_rgb[:, BLUE] < 50)
+        
+        # Detect boundaries (transitions from False to True or True to False)
+        diff = np.diff(is_red.astype(int), prepend=0, append=0)
+        roi.edge_indices = np.where(diff != 0)[0].tolist()
+
+        roi.is_active = len(roi.edge_indices) > 0
+        return roi.is_active
+
+    print('sisi')
 
 
 #########################################################################################################
@@ -727,7 +764,15 @@ class Controller:
         Same as description of is_left().
         """
         return x <= ((MIDDLE_LEFT + X_LEFT)/2) or x >= ((MIDDLE_RIGHT + X_RIGHT)/2)
+    
+    def is_in_dragonfly(self, rgb):
+        r = rgb[0]
+        g = rgb[1]
+        b = rgb[2]
 
+        if r > 100 and g < 50 and b < 50:
+            return True
+        return False
 
 ##########################################################################################
 ############################## Odor processing functions #################################
@@ -767,4 +812,4 @@ def odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80):
 #########################################################################################################
 ######################################## DRAGONFLY DETECTION ############################################
 #########################################################################################################
-print('ROI_obst')
+
