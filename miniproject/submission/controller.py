@@ -395,7 +395,7 @@ class Controller:
         # Draw edges in RED
         for roi in self.all_rois:
             y_draw = int(np.clip(roi.y, 0, im.shape[0]-1))
-            im[y_draw, roi.x0:roi.x1] = default_color
+            # im[y_draw, roi.x0:roi.x1] = default_color => uncomment to see the horizontal black lines
             if roi.is_active: # an roi is active is an edge was detected along it
                 if self.draw_edges:
                     for i in roi.edge_indices:
@@ -746,5 +746,7 @@ def odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80):
     return drives
 
 
-
+#########################################################################################################
+######################################## DRAGONFLY DETECTION ############################################
+#########################################################################################################
     
