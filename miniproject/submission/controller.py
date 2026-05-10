@@ -114,16 +114,19 @@ class Controller:
                 ROI("mid", (Y_HIGH + Y_LOW)//2, X_LEFT, X_RIGHT),
                 ROI("low", Y_LOW, X_LEFT, X_RIGHT),
             ]
-        self.all_rois_drag = [
-            ROI(f"drag_{i}", int(y), X_LEFT_DRAG, X_RIGHT_DRAG)
-            for i, y in enumerate(np.linspace(Y_HIGH_DRAG, Y_LOW_DRAG, NB_OF_ROI_DRAG))
-        ]
 
         self.all_rectangles = []
         for i in range(NB_OF_RECT):
             self.all_rectangles.append(Rectangle(X_LEFT+(i*WIDTH_INCR)-1, X_LEFT+((i+1)*WIDTH_INCR), self.all_rois_obst[0].y - HEIGHT_INCR, self.all_rois_obst[2].y + HEIGHT_INCR, COLOR_BLACK))
                                                 # the "-1" is here so that the beginning of a rectangle do not 
                                                 # overlapp the end of the previous one  
+
+        # ======== Dragonfly ========
+        self.all_rois_drag = [
+            ROI(f"drag_{i}", int(y), X_LEFT_DRAG, X_RIGHT_DRAG)
+            for i, y in enumerate(np.linspace(Y_HIGH_DRAG, Y_LOW_DRAG, NB_OF_ROI_DRAG))
+        ]
+        self.dragonfly_pos = (0, 0) # (y, x)
 
         # ========Johanne code========
         self.odor_smooth = None
@@ -170,19 +173,19 @@ class Controller:
             self.detect_slope_proprioceptive(sim)
             self.compute_convexe_concave()
 
+
         # ======== Color vision ========
         if self.count % VISION_RATE == 0:
             im = self.color_vision(sim)
+            self.adapts_ROI_to_slope() 
 
             if self.is_flipped(sim, im):
                 self.recover_fly(im)
 
-            self.adapts_ROI_to_slope() 
 
-
-        # ======== Obstacle detection ========
+        # ======== Obstacle / Dragonfly detection ========
             
-            self.detect_line_jump(sim)
+            self.detect_line_jump(sim) # calls detection of both obstacles and dragonfly
             self.decide_avoidance_strategy()
             self.show_rectangles(im)
 
@@ -218,6 +221,7 @@ class Controller:
         drives = self.speed * self.odor_drives * np.array([self.k, 1/self.k])
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
+    
 
 ###################################################################################
 ########################### Obstacle Avoidance Strategy ###########################
@@ -440,54 +444,19 @@ class Controller:
             if show_lines :
                 im[y_draw, roi.x0:roi.x1] = default_color
             if roi.is_active:
-                if self.draw_edges:
-                    for i in roi.edge_indices:
-                        im[y_draw, (int(roi.x0 + i - roi.diff_width/2)):(int(roi.x0 + i + roi.diff_width/2))] = COLOR_GREEN
-                
-                # Draw blue square between pairs of edges (bounding box for the dragonfly head)
-                if len(roi.edge_indices) >= 2:
-                    # Merge segments if they are closer than 50 units
-                    merged_segments = []
-                    curr_l = roi.edge_indices[0]
-                    curr_r = roi.edge_indices[1]
-                    
-                    for k in range(2, len(roi.edge_indices) - 1, 2):
-                        next_l = roi.edge_indices[k]
-                        next_r = roi.edge_indices[k+1]
-                        if (next_l - curr_r) < 50:
-                            curr_r = next_r
-                        else:
-                            merged_segments.append((curr_l, curr_r))
-                            curr_l, curr_r = next_l, next_r
-                    merged_segments.append((curr_l, curr_r))
+            
+                x_l = int(min(roi.edge_indices) )
+                x_r = int(1 + max(roi.edge_indices))
+                side = int((x_r - x_l) // 2)
+                y_t = int(roi.y - side)
+                y_b = int(1 + roi.y + side)
+                      
+                im[y_t:y_b, x_l] = COLOR_BLUE   # Left border
+                im[y_t:y_b, x_r] = COLOR_BLUE   # Right border
+                im[y_t, x_l:x_r] = COLOR_BLUE   # Top border
+                im[y_b, x_l:x_r] = COLOR_BLUE   # Bottom border
 
-                    for l, r in merged_segments:
-                        x_l = int(np.clip(roi.x0 + l, 0, im.shape[1] - 1))
-                        x_r = int(np.clip(roi.x0 + r, 0, im.shape[1] - 1))
-                        side = x_r - x_l
-                        if side > 0:
-                            y_mid = int(roi.y)
-                            y_t = int(np.clip(y_mid - side // 2, 0, im.shape[0] - 1))
-                            y_b = int(np.clip(y_mid + side // 2, 0, im.shape[0] - 1))
-                            
-                            im[y_t:y_b + 1, x_l] = COLOR_BLUE   # Left border
-                            im[y_t:y_b + 1, x_r] = COLOR_BLUE   # Right border
-                            im[y_t, x_l:x_r + 1] = COLOR_BLUE   # Top border
-                            im[y_b, x_l:x_r + 1] = COLOR_BLUE   # Bottom border
-
-        # Draw the heights in BLUE (drawn last and thicker for visibility)
-        for vx, vy0, vy1 in self.last_vertical_segments:
-            # vx is the x-pos of the height ; vy0 and vy1 are its vertical boundaries
-            vx_start = max(0, vx - 1)
-            vx_end = min(im.shape[1], vx + 2)
-            im[vy0:vy1, vx_start:vx_end] = COLOR_BLUE
-            if self.obs == True:
-                im[vy0:vy1, vx_start:vx_end] = COLOR_RED
-
-        
-
-        return im
-    
+                self.dragonfly_pos = ((y_t + side), (x_l + side))
 
 #######################################################################################
 ################################# OBSTACLE DETECTION ##################################
@@ -622,6 +591,11 @@ class Controller:
                 
         return (vx, y_top, y_bottom)
     
+
+#########################################################################################################
+######################################## DRAGONFLY DETECTION ############################################
+#########################################################################################################
+    
     
     def detect_line_jump_ROIdrag(self, im, roi):
         """
@@ -641,8 +615,24 @@ class Controller:
         roi.is_active = len(roi.edge_indices) > 0
         return roi.is_active
 
-    print('sisi')
 
+    def where_is_dragonfly(self):
+
+        regions = np.zeros(NB_OF_RECT)
+        x = self.dragonfly_pos[1]
+        separation = 900/NB_OF_RECT
+
+        for i in range(NB_OF_RECT):
+            if x < (1+i)*separation:
+                regions[i] = 1
+
+        if np.mean(regions)>0.25 :
+            print("error : dragonfly is detected in multiple regions")
+
+        return regions
+
+
+    print('hihiiii')
 
 #########################################################################################################
 ####################### FUNCTIONS THAT HELP THE TESTS BETWEEN DIFFERENT INTENSITIES #####################
@@ -759,8 +749,8 @@ class Controller:
             roi.y = np.clip(new_y, 75, 475)
             
         for roi in self.all_rois_drag:
-            new_y = roi.base_y + coeff
-            roi.y = np.clip(new_y, 75, 475)
+            new_y = roi.base_y + coeff*1.5
+            roi.y = np.clip(new_y, 1, 499)
             
         self.pitch_derivative = 0
         return 0
@@ -862,6 +852,5 @@ def odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80):
     return drives
 
 
-#########################################################################################################
-######################################## DRAGONFLY DETECTION ############################################
-#########################################################################################################
+
+
