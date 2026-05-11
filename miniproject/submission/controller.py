@@ -203,7 +203,10 @@ class Controller:
         else:
             self.odor_state = "LOST"
             #print("following last souvenir")
-            self.odor_drives = self.last_odor_drives
+            if self.wind_state == "INTERFERING":
+                self.odor_drives = self.last_odor_drives
+            else : self.odor_drives = 0.01*self.odor_drives
+            
 
         if self.odor_state != self.prev_state:
             if self.odor_state == "TRACKING":
@@ -212,6 +215,8 @@ class Controller:
                 print(f"Step {self.count}: WE'RE LOOSING IT")
             elif self.odor_state == "LOST":
                 print(f"Step {self.count}: LOST")
+                if self.wind_state == "INTERFERING": print('still hope')
+                else : print('lost for good')
             print(f"Step {self.count}: {self.odor_state} (mean_odor={mean_odor:.6f})")
             self.prev_state = self.odor_state
             
