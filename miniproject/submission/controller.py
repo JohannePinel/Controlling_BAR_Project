@@ -37,11 +37,11 @@ TURN_RIGHT = 1.25
 TURN_LEFT = 1/TURN_RIGHT
 CONFIDENT = 1.0
 SUSPICIOUS = 1
-TURN_COEFF = 4
+TURN_COEFF = 3
 FLIPPED_FOR_SURE = 200
 
 AVOIDANCE_DURATION = 200 
-DANGER_THRESHOLD = 20 
+DANGER_THRESHOLD = 100 
 
 class Rectangle:
     def __init__(self, x0, x1, y_top, y_bottom, color):
@@ -223,14 +223,14 @@ class Controller:
             self.danger_zone_index = idx_max
             
             if idx_max == 0 or idx_max == 1:  # Obstacle à gauche
-                print("danger à gauche, je vire à droite", max_danger)
+               # print("danger à gauche, je vire à droite", max_danger)
 
                 self.avoidance_direction = 1
                 if idx_max == 1: 
                     self.speed = SUSPICIOUS * 0.5 * 1/idx_max # plus l'obstacle est proche du centre, plus la mouche ralentit pour éviter
             else: # Obstacle à droite
                 self.avoidance_direction = -1
-                print("danger à droite, je vire à gauche", max_danger)
+                # print("danger à droite, je vire à gauche", max_danger)
                 if idx_max == 2: 
                     self.speed = SUSPICIOUS * 0.5 *1/idx_max
             
