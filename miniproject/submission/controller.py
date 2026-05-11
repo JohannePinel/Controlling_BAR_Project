@@ -98,7 +98,7 @@ class Controller:
         self.pitch_count = 1
         self.pitch_collection_window = 4 
         self.pitch_weight = pitch_weight
-        self.th_danger_upsidedown = 0.48
+        self.th_danger_upsidedown = 0.3
         self.th_slope_category = 0.08
         self.maybe_flipped = 0
         self.prev_pitch = 5 # if it was 0, the first computation of the pitch_derivative is too high and 
@@ -154,10 +154,11 @@ class Controller:
         self.last_odor_drives = np.ones(2)
         self.odor_state = "LOST"      # "TRACKING", "RECOVERING", "LOST"
         self.prev_state = "LOST"
-        self.LOST_THRESHOLD = 38      # from paper, 25-38 steps
-        self.RECOVERING_THRESHOLD = 12 
+        self.LOST_THRESHOLD = 12     # from paper, 25-38 steps
+        #self.RECOVERING_THRESHOLD = 12 
         self.odor_memory_fast = 0.0        # drives turn decisions
         self.alpha_fast = 2/(8+1)   # ~0.22
+        self.upside_down = False 
 
 ###################################################################################
 ################################# STEP FUNCTION ###################################
@@ -179,45 +180,45 @@ class Controller:
                 self.odor_smooth = (1 - self.alpha) * self.odor_smooth + self.alpha * olfaction
 
             self.odor_drives = odor_to_drives(self.odor_smooth) * 3 #fois x to increase the effect of the odor on the speed, otherwise the fly is too much focused on the obstacle avoidance and doesn't move enough towards the target
-        
-        # track when odor was last sensed 
-        #mean_odor = np.mean(self.odor_smooth) if self.odor_smooth is not None else 0.0
-        #self.odor_memory_fast = (1 - self.alpha_fast) * self.odor_memory_fast + self.alpha_fast * mean_odor
+
+        # tracking when odor was last sensed 
         mean_odor = np.max(self.odor_smooth) if self.odor_smooth is not None else 0.0
         #print("mean odor is " , mean_odor)
-        ODOR_DETECTION_THRESHOLD = 1e-8 
-        if mean_odor > ODOR_DETECTION_THRESHOLD:
-            #print("we are tracking")
+        ODOR_DETECTION_THRESHOLD = 5e-8 
+        if mean_odor > ODOR_DETECTION_THRESHOLD: # we smell the source
             self.t_last_odor = self.count
             if self.count < 3 : print("found immediatly")
-            self.last_odor_drives = self.odor_drives
+            self.last_odor_drives = self.odor_drives # will be the our aim if we lose the smell next step
 
-        steps_since_odor = self.count - self.t_last_odor
+        steps_since_odor = self.count - self.t_last_odor # how long it's been since we lost the smell
 
-        if steps_since_odor <= self.RECOVERING_THRESHOLD:
+        if steps_since_odor <= self.LOST_THRESHOLD: 
             self.odor_state = "TRACKING"
-            
-        elif self.RECOVERING_THRESHOLD < steps_since_odor < self.LOST_THRESHOLD:
-            self.odor_state = "RECOVERING"
-            self.odor_drives = self.last_odor_drives
-        else:
+        else: # we lost the smell for too long
             self.odor_state = "LOST"
-            #print("following last souvenir")
-            if self.wind_state == "INTERFERING":
+            if self.wind_state == "INTERFERING": #wind is not forward, so the source is still where we smelled it last
                 self.odor_drives = self.last_odor_drives
-            else : self.odor_drives = 0.01*self.odor_drives
-            
+            else : 
+                self.odor_drives = np.array([1.5, 0.5])  # lean right
+                self.odor_drives = 0.5*self.odor_drives 
+                '''
+                if (self.count // 50000) % 2 == 0:
+                    self.odor_drives = np.array([1.5, 0.5])  # lean right
+                    print('leaning right because I am lost')
+                else:
+                    self.odor_drives = np.array([0.5, 1.5])  # lean left
+                    print('leaning left because I am lost')
+                '''
+            # even with forward wind we do not smell it, it is really lost, need to search again, we slow down to find it before moving again
 
-        if self.odor_state != self.prev_state:
+        if self.odor_state != self.prev_state: # change of state
             if self.odor_state == "TRACKING":
-                print(f"Step {self.count}: FOUND!")
-            elif self.odor_state == "RECOVERING":
-                print(f"Step {self.count}: WE'RE LOOSING IT")
+                print(f"Step {self.count}: Found the smell !") # we had lost it, now we found it
             elif self.odor_state == "LOST":
-                print(f"Step {self.count}: LOST")
-                if self.wind_state == "INTERFERING": print('still hope')
-                else : print('lost for good')
-            print(f"Step {self.count}: {self.odor_state} (mean_odor={mean_odor:.6f})")
+                print(f"Step {self.count}: Lost the smell :( ")
+                #if self.wind_state == "INTERFERING": print('still hope') 
+                #else : print('lost for good')
+            #print(f"Step {self.count}: {self.odor_state} (mean_odor={mean_odor:.6f})")
             self.prev_state = self.odor_state
             
         # ======== Slope detection ========
@@ -232,7 +233,12 @@ class Controller:
             self.adapts_ROI_to_slope() 
 
             if self.is_flipped(sim, im):
+                self.upside_down = True
                 self.recover_fly(im)
+                print('mother I fell')
+            else :
+                self.upside_down = False
+    
 
 
         # ======== Obstacle / Dragonfly detection ========
@@ -285,11 +291,23 @@ class Controller:
             roll_diff  = euler_l[1] - euler_r[1]
             yaw_diff   = euler_l[2] - euler_r[2]
             
-            predicted_direction = wind_analysis(self, pitch_diff, roll_diff, yaw_diff)
-            print(f"Step {self.step_count}: predicted wind direction = {predicted_direction}°, so {self.wind_state}")
+            #predicted_direction = wind_analysis(self, pitch_diff, roll_diff, yaw_diff)
+            #print(f"Step {self.step_count}: predicted wind direction = {predicted_direction}°, so {self.wind_state}")
 
         
         # ======== Instructions to body =======
+        if self.current_slope_category == "carreful_upsidedown":
+            self.speed = 0.2  # almost stop, let physics stabilize
+        else:
+            self.speed = SUSPICIOUS
+        
+        if self.upside_down == True :
+            # Drive legs asymmetrically to generate a rolling torque
+            self.odor_drives = np.array([2.0, 0.0])  # full force one side
+            self.speed = SUSPICIOUS * 2
+            self.k = TURN_COEFF * 2
+            #print('trying my best')
+
         drives = self.speed * self.odor_drives * np.array([self.k, 1/self.k])
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
@@ -791,6 +809,7 @@ class Controller:
                 if self.maybe_flipped >= FLIPPED_FOR_SURE:   
                     self.maybe_flipped = 0
                     return True
+                
                 else:   
                     self.maybe_flipped += 1
         return False
@@ -932,10 +951,10 @@ def wind_analysis(self, pitch_diff, roll_diff, yaw_diff) :
     wind_direction = 0
     if pitch_diff < -15 : 
         wind_direction = 0
-        self.wind_state = "INTERFERING"
+        self.wind_state = "INTERFERING" # the wind interfers with the smell if we are moving towards the source
     elif pitch_diff > -8 : 
         wind_direction = 180
-        self.wind_state = "SILENT"
+        self.wind_state = "SILENT" # frontward wind, we can still smell the source if we are moving towards it
     else :
         if roll_diff > 0:
             if roll_diff < 1 : 
