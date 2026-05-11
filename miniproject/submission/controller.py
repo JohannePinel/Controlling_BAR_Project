@@ -151,6 +151,7 @@ class Controller:
         self.wind_state = "NONE"
         self.step_count = 0
         self.t_last_odor = 0          # timestep of last odor detection
+        self.last_odor_drives = np.ones(2)
         self.odor_state = "LOST"      # "TRACKING", "RECOVERING", "LOST"
         self.prev_state = "LOST"
         self.LOST_THRESHOLD = 38      # from paper, 25-38 steps
@@ -189,16 +190,20 @@ class Controller:
             #print("we are tracking")
             self.t_last_odor = self.count
             if self.count < 3 : print("found immediatly")
+            self.last_odor_drives = self.odor_drives
 
         steps_since_odor = self.count - self.t_last_odor
 
-        if 1 < steps_since_odor <= self.RECOVERING_THRESHOLD:
+        if steps_since_odor <= self.RECOVERING_THRESHOLD:
             self.odor_state = "TRACKING"
             
         elif self.RECOVERING_THRESHOLD < steps_since_odor < self.LOST_THRESHOLD:
             self.odor_state = "RECOVERING"
+            self.odor_drives = self.last_odor_drives
         else:
             self.odor_state = "LOST"
+            #print("following last souvenir")
+            self.odor_drives = self.last_odor_drives
 
         if self.odor_state != self.prev_state:
             if self.odor_state == "TRACKING":
@@ -206,7 +211,7 @@ class Controller:
             elif self.odor_state == "RECOVERING":
                 print(f"Step {self.count}: WE'RE LOOSING IT")
             elif self.odor_state == "LOST":
-                print(f"Step {self.count}: LO0ST")
+                print(f"Step {self.count}: LOST")
             print(f"Step {self.count}: {self.odor_state} (mean_odor={mean_odor:.6f})")
             self.prev_state = self.odor_state
             
