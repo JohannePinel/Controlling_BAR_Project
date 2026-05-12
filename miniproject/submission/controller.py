@@ -184,7 +184,7 @@ class Controller:
         # tracking when odor was last sensed 
         mean_odor = np.max(self.odor_smooth) if self.odor_smooth is not None else 0.0
         #print("mean odor is " , mean_odor)
-        ODOR_DETECTION_THRESHOLD = 5e-8 
+        ODOR_DETECTION_THRESHOLD = 1e-8 
         if mean_odor > ODOR_DETECTION_THRESHOLD: # we smell the source
             self.t_last_odor = self.count
             if self.count < 3 : print("found immediatly")
