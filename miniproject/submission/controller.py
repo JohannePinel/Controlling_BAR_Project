@@ -196,7 +196,7 @@ class Controller:
             self.odor_state = "TRACKING"
         else: # we lost the smell for too long
             self.odor_state = "LOST"
-            if self.wind_state == "INTERFERING": #wind is not forward, so the source is still where we smelled it last
+            if self.wind_state != "SILENT": #wind is not forward, so the source is still where we smelled it last
                 self.odor_drives = self.last_odor_drives
             else : 
                 self.odor_drives = np.array([1.5, 0.5])  # lean right
@@ -221,6 +221,9 @@ class Controller:
             #print(f"Step {self.count}: {self.odor_state} (mean_odor={mean_odor:.6f})")
             self.prev_state = self.odor_state
             
+        if self.wind_state == "SIDE":
+            self.speed = 0
+            #print('stopped because Im scared to fall')
         # ======== Slope detection ========
         if self.count % PITCH_DETECTION_RATE == 1: # if was 0, the pitch or the derivative pitch would be reset to 0 right before the color_vision() starts
             self.detect_slope_proprioceptive(sim)
@@ -291,8 +294,8 @@ class Controller:
             roll_diff  = euler_l[1] - euler_r[1]
             yaw_diff   = euler_l[2] - euler_r[2]
             
-            #predicted_direction = wind_analysis(self, pitch_diff, roll_diff, yaw_diff)
-            #print(f"Step {self.step_count}: predicted wind direction = {predicted_direction}°, so {self.wind_state}")
+            predicted_direction = wind_analysis(self, pitch_diff, roll_diff, yaw_diff)
+            print(f"Step {self.step_count}: predicted wind direction = {predicted_direction}°, so {self.wind_state}")
 
         
         # ======== Instructions to body =======
@@ -959,7 +962,7 @@ def wind_analysis(self, pitch_diff, roll_diff, yaw_diff) :
         if roll_diff > 0:
             if roll_diff < 1 : 
                 wind_direction = 270
-                self.wind_state = "INTERFERING"
+                self.wind_state = "SIDE"
             else :
                 if yaw_diff > 0 : 
                     wind_direction = 45
@@ -970,7 +973,7 @@ def wind_analysis(self, pitch_diff, roll_diff, yaw_diff) :
         if roll_diff < 0:
             if roll_diff > -1 : 
                 wind_direction = 90
-                self.wind_state = "INTERFERING"
+                self.wind_state = "SIDE"
             else :
                 if yaw_diff > 0 : 
                     wind_direction = 315
