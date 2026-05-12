@@ -42,12 +42,14 @@ HEIGHT_INCR = (Y_LOW - Y_HIGH)//2
 TURN_RIGHT = 1.25
 TURN_LEFT = 1/TURN_RIGHT
 CONFIDENT = 1.0
-SUSPICIOUS = 1
-TURN_COEFF = 3
+SUSPICIOUS = 0.8
+TURN_COEFF = 2.5
 FLIPPED_FOR_SURE = 200
+RUN_AWAY_FROM_DRAGONFLY = 1.5
 
 AVOIDANCE_DURATION = 200 
 DANGER_THRESHOLD = 100 
+AVOIDANCE_DRAGONFLY_DURATION = 100
 
 class Rectangle:
     def __init__(self, x0, x1, y_top, y_bottom, color):
@@ -134,7 +136,9 @@ class Controller:
 
         # ======== Obstacle avoidance ========
         self.avoiding_obstacle = False
+        self.avoiding_dragonfly = False
         self.avoidance_timer = 0
+        self.avoidance_dragonfly_timer = 0
         self.avoidance_direction = 0            # -1 = gauche, 1 = droite, 0 = pas d'évitement
         self.danger_zone_index = -1             # Index de la zone dangereuse (0-3)
 
@@ -187,11 +191,15 @@ class Controller:
             
             self.detect_line_jump(sim) # calls detection of both obstacles and dragonfly
             self.decide_avoidance_strategy()
+            self.dragonfly_avoidance_strategy()
             self.show_rectangles(im)
 
+
+         # ======== Dragonfly avoidance ========
+        
         
         # ======== Obstacle avoidance ========
-        if self.avoiding_obstacle:
+        if self.avoiding_obstacle or self.avoiding_dragonfly:
             if self.avoidance_direction == -1:
                 self.turn_left()
             elif self.avoidance_direction == 1:
@@ -200,11 +208,20 @@ class Controller:
             else :
                 self.speed = SUSPICIOUS
 
-        self.avoidance_timer -= 1
+        if self.avoiding_dragonfly == True :
+                    self.avoiding_obstacle = False
 
-        if self.avoidance_timer <= 0:
+
+        if self.avoiding_dragonfly and not self.avoiding_obstacle:
+            self.speed = RUN_AWAY_FROM_DRAGONFLY
+
+        self.avoidance_timer -= 1
+        self.avoidance_dragonfly_timer -= 1
+
+        if self.avoidance_timer <= 0 or self.avoidance_dragonfly_timer <= 0:
                 # Fin de l'évitement
                 self.avoiding_obstacle = False
+                self.avoiding_dragonfly = False
                 self.avoidance_direction = 0
                 self.no_turn()
 
@@ -226,6 +243,30 @@ class Controller:
 ###################################################################################
 ########################### Obstacle Avoidance Strategy ###########################
 ###################################################################################
+
+
+
+    def dragonfly_avoidance_strategy(self):
+
+        """
+        Analyse les positions de la libellule et décide si la mouche doit virer à gauche ou à droite pour l'éviter.
+        """
+
+        regions = self.where_is_dragonfly()
+        
+        if np.mean(regions) > 0.25 or np.mean(regions) == 0: # if the dragonfly is detected in multiple regions, we are not sure about where it is and we do not want to take the risk to turn in the wrong direction
+            return
+        print("dragonfly detected in region(s) :", regions)
+        idx_max = np.argmax(regions)
+        
+        if idx_max == 0 or idx_max == 1:  # Dragonfly à gauche
+            self.avoidance_direction = 1
+        elif idx_max == 2 or idx_max == 3: # Dragonfly à droite
+            self.avoidance_direction = -1
+
+        self.avoiding_dragonfly = True
+        self.avoidance_dragonfly_timer = AVOIDANCE_DRAGONFLY_DURATION
+
  
     def decide_avoidance_strategy(self):
         """
@@ -233,6 +274,7 @@ class Controller:
         """
         if self.avoiding_obstacle:
             return
+        
         
         regions = np.zeros(NB_OF_RECT)
         regions = self.comparison_obstacles()
@@ -245,18 +287,15 @@ class Controller:
             self.danger_zone_index = idx_max
             
             if idx_max == 0 or idx_max == 1:  # Obstacle à gauche
-               # print("danger à gauche, je vire à droite", max_danger)
 
                 self.avoidance_direction = 1
                 if idx_max == 1: 
                     self.speed = SUSPICIOUS * 0.5 * 1/idx_max # plus l'obstacle est proche du centre, plus la mouche ralentit pour éviter
             else: # Obstacle à droite
                 self.avoidance_direction = -1
-                # print("danger à droite, je vire à gauche", max_danger)
                 if idx_max == 2: 
                     self.speed = SUSPICIOUS * 0.5 *1/idx_max
             
-            # Activer l'évitement
             self.avoiding_obstacle = True
             self.avoidance_timer = AVOIDANCE_DURATION
         
@@ -439,24 +478,50 @@ class Controller:
 
     def show_ROI_drag(self, im, default_color=COLOR_BLACK, show_lines=False):
         # Draw dragonfly ROIs in black and edges in GREEN
+        img_height, img_width = im.shape[:2]
+        
         for roi in self.all_rois_drag:
-            y_draw = int(np.clip(roi.y, 0, im.shape[0]-1))
-            if show_lines :
-                im[y_draw, roi.x0:roi.x1] = default_color
-            if roi.is_active:
+            y_draw = int(np.clip(roi.y, 0, img_height - 1))
             
-                x_l = int(min(roi.edge_indices) )
+            if show_lines:
+                # Bounds check for horizontal line
+                x0_safe = int(np.clip(roi.x0, 0, img_width))
+                x1_safe = int(np.clip(roi.x1, 0, img_width))
+                im[y_draw, x0_safe:x1_safe] = default_color
+                
+            if roi.is_active:
+                # Check if edge_indices is not empty to avoid errors
+                if not roi.edge_indices:
+                    continue
+                    
+                x_l = int(min(roi.edge_indices))
                 x_r = int(1 + max(roi.edge_indices))
                 side = int((x_r - x_l) // 2)
                 y_t = int(roi.y - side)
                 y_b = int(1 + roi.y + side)
-                      
-                im[y_t:y_b, x_l] = COLOR_BLUE   # Left border
-                im[y_t:y_b, x_r] = COLOR_BLUE   # Right border
-                im[y_t, x_l:x_r] = COLOR_BLUE   # Top border
-                im[y_b, x_l:x_r] = COLOR_BLUE   # Bottom border
-
-                self.dragonfly_pos = ((y_t + side), (x_l + side))
+                
+                # Clamp all boundaries to image dimensions
+                # CRITICAL: y_b and x_r are used as indices, so they must be < img_height and img_width
+                y_t = int(np.clip(y_t, 0, img_height - 1))
+                y_b = int(np.clip(y_b, 0, img_height - 1))
+                x_l = int(np.clip(x_l, 0, img_width - 1))
+                x_r = int(np.clip(x_r, 0, img_width - 1))
+                
+                # Ensure y_b and x_r won't cause index errors (they can be at most img_height-1 and img_width-1)
+                # since we use them as single indices (im[y_b, ...] and im[..., x_r])
+                if y_b >= img_height:
+                    y_b = img_height - 1
+                if x_r >= img_width:
+                    x_r = img_width - 1
+                
+                # Only draw if we have valid regions
+                if y_b > y_t and x_r > x_l:
+                    im[y_t:y_b, x_l] = COLOR_BLUE   # Left border
+                    im[y_t:y_b, x_r] = COLOR_BLUE   # Right border
+                    im[y_t, x_l:x_r] = COLOR_BLUE   # Top border
+                    im[y_b, x_l:x_r] = COLOR_BLUE   # Bottom border
+                    
+                    self.dragonfly_pos = ((y_t + side), (x_l + side))
 
 #######################################################################################
 ################################# OBSTACLE DETECTION ##################################
@@ -627,7 +692,8 @@ class Controller:
                 regions[i] = 1
 
         if np.mean(regions)>0.25 :
-            print("error : dragonfly is detected in multiple regions")
+            #print("error : dragonfly is detected in multiple regions")
+            return np.zeros(NB_OF_RECT)
 
         return regions
 
@@ -850,7 +916,3 @@ def odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80):
     side = int(bias_norm > 0)
     drives[side] -= np.abs(bias_norm) * 0.8
     return drives
-
-
-
-
