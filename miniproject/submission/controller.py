@@ -87,6 +87,7 @@ class Controller:
         self.count = 0
         self.mode = mode
         self.draw_edges = True
+        self.general_state = "SEARCHING" # can be SEARCHING, TRACKING, AVOIDING, RUNNING (away from the dragonfly)
         
         # ========Color vision parameters========
         self.frames = []
@@ -169,6 +170,13 @@ class Controller:
         fly_pos = sim.get_body_positions(sim.fly.name)[0]   # Position du thorax
         self.trajectory.append((fly_pos[0], fly_pos[1]))    # Enregistrer (x, y)
 
+        """
+        dragonfly_region = self.where_is_dragonfly()
+        if np.mean(dragonfly_region) > 0 : # we see a dragonfly
+            self.general_state = "RUNNING"
+        """
+
+
         # ======== Odor detection ========
         if self.count % OLFACTION_RATE == 2:
             olfaction = sim.get_olfaction(sim.fly.name)
@@ -184,11 +192,17 @@ class Controller:
         # tracking when odor was last sensed 
         mean_odor = np.max(self.odor_smooth) if self.odor_smooth is not None else 0.0
         #print("mean odor is " , mean_odor)
-        ODOR_DETECTION_THRESHOLD = 5e-8 
+        ODOR_DETECTION_THRESHOLD = 1e-8 
         if mean_odor > ODOR_DETECTION_THRESHOLD: # we smell the source
+            self.general_state = "TRACKING"
             self.t_last_odor = self.count
             if self.count < 3 : print("found immediatly")
             self.last_odor_drives = self.odor_drives # will be the our aim if we lose the smell next step
+        else : self.general_state = "SEARCHING"
+
+        if self.general_state == "SEARCHING" :
+            self.odor_drives = np.array([1.5, 0.5])  # lean right
+            self.odor_drives = 0.5*self.odor_drives 
 
         steps_since_odor = self.count - self.t_last_odor # how long it's been since we lost the smell
 
@@ -245,7 +259,7 @@ class Controller:
 
 
         # ======== Obstacle / Dragonfly detection ========
-            
+                
             self.detect_line_jump(sim) # calls detection of both obstacles and dragonfly
             self.decide_avoidance_strategy()
             self.show_rectangles(im)
@@ -253,21 +267,25 @@ class Controller:
         
         # ======== Obstacle avoidance ========
         if self.avoiding_obstacle:
+            self.general_state == "AVOIDING"
+
             if self.avoidance_direction == -1:
                 self.turn_left()
             elif self.avoidance_direction == 1:
-                self.turn_right()
-            
+                self.turn_right()  
             else :
                 self.speed = SUSPICIOUS
 
         self.avoidance_timer -= 1
 
         if self.avoidance_timer <= 0:
-                # Fin de l'évitement
-                self.avoiding_obstacle = False
-                self.avoidance_direction = 0
-                self.no_turn()
+            # Fin de l'évitement
+            self.general_state == "SEARCHING"
+            self.avoiding_obstacle = False
+            self.avoidance_direction = 0
+            self.no_turn()
+
+
 
         
         # ======== Visualization ========
@@ -296,6 +314,7 @@ class Controller:
             
             predicted_direction = wind_analysis(self, pitch_diff, roll_diff, yaw_diff)
             print(f"Step {self.step_count}: predicted wind direction = {predicted_direction}°, so {self.wind_state}")
+            print(f"Step {self.step_count}: current state = {self.general_state}")
 
         
         # ======== Instructions to body =======
@@ -721,6 +740,8 @@ class Controller:
 
         if np.mean(regions)>0.25 :
             print("error : dragonfly is detected in multiple regions")
+
+        if np.mean(regions) > 0 : self.general_state == "RUNNING"
 
         return regions
 
