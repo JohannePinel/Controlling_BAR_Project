@@ -49,6 +49,9 @@ FLIPPED_FOR_SURE = 200
 AVOIDANCE_DURATION = 200 
 DANGER_THRESHOLD = 20 
 
+
+ODOR_DETECTION_THRESHOLD = 1e-8 
+
 class Rectangle:
     def __init__(self, x0, x1, y_top, y_bottom, color):
         self.x0 = x0
@@ -128,6 +131,7 @@ class Controller:
             for i, y in enumerate(np.linspace(Y_HIGH_DRAG, Y_LOW_DRAG, NB_OF_ROI_DRAG))
         ]
         self.dragonfly_pos = (0, 0) # (y, x)
+        self.dragonfly_seen = False
 
         # ========Johanne code========
         self.odor_smooth = None
@@ -167,49 +171,42 @@ class Controller:
     def step(self, sim: MiniprojectSimulation):
         self.count += 1
 
+        # ======== Tracking position ========
         fly_pos = sim.get_body_positions(sim.fly.name)[0]   # Position du thorax
         self.trajectory.append((fly_pos[0], fly_pos[1]))    # Enregistrer (x, y)
-
-        """
-        dragonfly_region = self.where_is_dragonfly()
-        if np.mean(dragonfly_region) > 0 : # we see a dragonfly
-            self.general_state = "RUNNING"
-        """
-
-
+        
         # ======== Odor detection ========
         if self.count % OLFACTION_RATE == 2:
             olfaction = sim.get_olfaction(sim.fly.name)
             #print(f"olfaction shape: {olfaction.shape}, values: {olfaction}")
-
             if self.odor_smooth is None:
                 self.odor_smooth = olfaction
             else:
                 self.odor_smooth = (1 - self.alpha) * self.odor_smooth + self.alpha * olfaction
-
+            
             self.odor_drives = odor_to_drives(self.odor_smooth) * 3 #fois x to increase the effect of the odor on the speed, otherwise the fly is too much focused on the obstacle avoidance and doesn't move enough towards the target
 
-        # tracking when odor was last sensed 
+        # tracking when odor was last smelled 
         mean_odor = np.max(self.odor_smooth) if self.odor_smooth is not None else 0.0
         #print("mean odor is " , mean_odor)
-        ODOR_DETECTION_THRESHOLD = 1e-8 
+        
         if mean_odor > ODOR_DETECTION_THRESHOLD: # we smell the source
-            self.general_state = "TRACKING"
             self.t_last_odor = self.count
-            if self.count < 3 : print("found immediatly")
+            #if self.count < 3 : print("found immediatly")
             self.last_odor_drives = self.odor_drives # will be the our aim if we lose the smell next step
-        else : self.general_state = "SEARCHING"
-
+        
+        """
         if self.general_state == "SEARCHING" :
             self.odor_drives = np.array([1.5, 0.5])  # lean right
             self.odor_drives = 0.5*self.odor_drives 
-
+        """
+        
         steps_since_odor = self.count - self.t_last_odor # how long it's been since we lost the smell
-
         if steps_since_odor <= self.LOST_THRESHOLD: 
             self.odor_state = "TRACKING"
         else: # we lost the smell for too long
             self.odor_state = "LOST"
+            """
             if self.wind_state != "SILENT": #wind is not forward, so the source is still where we smelled it last
                 self.odor_drives = self.last_odor_drives
             else : 
@@ -224,8 +221,10 @@ class Controller:
                     print('leaning left because I am lost')
                 '''
             # even with forward wind we do not smell it, it is really lost, need to search again, we slow down to find it before moving again
+            """
 
         if self.odor_state != self.prev_state: # change of state
+            """
             if self.odor_state == "TRACKING":
                 print(f"Step {self.count}: Found the smell !") # we had lost it, now we found it
             elif self.odor_state == "LOST":
@@ -233,11 +232,10 @@ class Controller:
                 #if self.wind_state == "INTERFERING": print('still hope') 
                 #else : print('lost for good')
             #print(f"Step {self.count}: {self.odor_state} (mean_odor={mean_odor:.6f})")
+            """
+            print(f"Step {self.count}: odor state -> {self.odor_state} (mean={mean_odor:.2e})")
             self.prev_state = self.odor_state
-            
-        if self.wind_state == "SIDE":
-            self.speed = 0
-            #print('stopped because Im scared to fall')
+
         # ======== Slope detection ========
         if self.count % PITCH_DETECTION_RATE == 1: # if was 0, the pitch or the derivative pitch would be reset to 0 right before the color_vision() starts
             self.detect_slope_proprioceptive(sim)
@@ -251,53 +249,25 @@ class Controller:
 
             if self.is_flipped(sim, im):
                 self.upside_down = True
-                self.recover_fly(im)
-                print('mother I fell')
+                #self.recover_fly(im)
+                #print('mother I fell')
             else :
                 self.upside_down = False
-    
-
-
-        # ======== Obstacle / Dragonfly detection ========
-                
-            self.detect_line_jump(sim) # calls detection of both obstacles and dragonfly
-            self.decide_avoidance_strategy()
-            self.show_rectangles(im)
-
-        
-        # ======== Obstacle avoidance ========
-        if self.avoiding_obstacle:
-            self.general_state == "AVOIDING"
-
-            if self.avoidance_direction == -1:
-                self.turn_left()
-            elif self.avoidance_direction == 1:
-                self.turn_right()  
-            else :
-                self.speed = SUSPICIOUS
-
-        self.avoidance_timer -= 1
-
-        if self.avoidance_timer <= 0:
-            # Fin de l'évitement
-            self.general_state == "SEARCHING"
-            self.avoiding_obstacle = False
-            self.avoidance_direction = 0
-            self.no_turn()
-
-
+                # ======== Obstacle / Dragonfly detection ========
+                self.detect_line_jump(sim) # calls detection of both obstacles and dragonfly
+                self.decide_avoidance_strategy()
+                self.show_rectangles(im)
 
         
         # ======== Visualization ========
         flag = True if self.mode == "tuning ROI" or self.mode == "tuning slope" else False
-
         if self.frames: # because is empty at the first steps
             self.show_ROI_obst(self.frames[-1], show_lines = flag)
             self.show_ROI_drag(self.frames[-1], show_lines = flag)
 
 
         # ======== Wind analysis ========
-        self.step_count = self.step_count+1
+        self.step_count += 1
         if self.step_count % 5000 == 0 and self.step_count > 0:
             # get current antenna data
             antenna_data = sim.get_antenna_data(sim.fly.name)
@@ -316,21 +286,127 @@ class Controller:
             print(f"Step {self.step_count}: predicted wind direction = {predicted_direction}°, so {self.wind_state}")
             print(f"Step {self.step_count}: current state = {self.general_state}")
 
+
+
+        # ======== Finite State Machine ========
+        if self.upside_down :
+            self.general_state = "FLIPPED"
+
+        # Priority n°1: dragonfly 
+        elif self.dragonfly_seen:  
+            self.general_state = "RUNNING"
+
+        # Priority n°2: obstacle
+        elif self.avoiding_obstacle:
+            self.general_state = "AVOIDING"
+
+        # Priority n°3: smell tracking
+        elif self.odor_state:
+            self.general_state = "TRACKING"
+
+        else:
+            self.general_state = "SEARCHING"
+
+        # avoidance timer
+        self.avoidance_timer -= 1
+        if self.avoidance_timer <= 0:
+            # Fin de l'évitement
+            self.avoiding_obstacle = False
+            self.avoidance_direction = 0
+            self.no_turn() 
+
+
+        # Behaviour according to state of the fly
+
+        if self.general_state == "FLIPPED" :
+            # tries to get back up
+            self.speed = SUSPICIOUS * 2
+            self.k = TURN_COEFF * 2
+            action_drives = np.array([2.0, 0.0])
+
+        elif self.general_state == "RUNNING" :
+            # running away from dragonfly
+            # en attendant la vrai version je mets un drive au bol
+            self.speed = SUSPICIOUS * 1.5
+            self.k = 1
+            action_drives = np.array([1.0, 1.0])    
+
+        elif self.general_state == "AVOIDING" : 
+            self.speed = SUSPICIOUS
+            if self.avoidance_direction == -1:
+                self.turn_left()
+            elif self.avoidance_direction == 1:
+                self.turn_right()  
+            action_drives = self.odor_drives
+                
+            """
+            self.avoidance_timer -= 1
+
+            if self.avoidance_timer <= 0:
+                # Fin de l'évitement
+                self.general_state == "SEARCHING"
+                self.avoiding_obstacle = False
+                self.avoidance_direction = 0
+                self.no_turn() 
+            """
+        elif self.general_state == "TRACKING" :
+            self.speed = SUSPICIOUS
+            self.k = 1
+            action_drives = self.odor_drives
+
+        else:  # SEARCHING
+            self.speed = SUSPICIOUS * 0.7  # slow down to cast around
+            self.k = 1
+            action_drives = self.last_odor_drives  # follow last known good direction
+
+
+        """
+        # ======== Obstacle avoidance ========
+        if self.avoiding_obstacle:
+            self.general_state == "AVOIDING"
+
+            if self.avoidance_direction == -1:
+                self.turn_left()
+            elif self.avoidance_direction == 1:
+                self.turn_right()  
+            else :
+                self.speed = SUSPICIOUS
         
-        # ======== Instructions to body =======
+        self.avoidance_timer -= 1
+
+        if self.avoidance_timer <= 0:
+            # Fin de l'évitement
+            self.general_state == "SEARCHING"
+            self.avoiding_obstacle = False
+            self.avoidance_direction = 0
+            self.no_turn()
+        """
+
+
+        
+        
+        
+        # slow down situations to avoid getting flipped, no matter the state
         if self.current_slope_category == "carreful_upsidedown":
             self.speed = 0.2  # almost stop, let physics stabilize
-        else:
-            self.speed = SUSPICIOUS
-        
+        """
+        if self.wind_state == "SIDE":
+            self.speed = 0
+            #print('stopped because Im scared to fall')
+        """
+
+        # ======== Instructions to body =======
+        """
         if self.upside_down == True :
             # Drive legs asymmetrically to generate a rolling torque
             self.odor_drives = np.array([2.0, 0.0])  # full force one side
             self.speed = SUSPICIOUS * 2
             self.k = TURN_COEFF * 2
             #print('trying my best')
+        """
 
-        drives = self.speed * self.odor_drives * np.array([self.k, 1/self.k])
+        #drives = self.speed * self.odor_drives * np.array([self.k, 1/self.k])
+        drives = self.speed * action_drives * np.array([self.k, 1/self.k])
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
     
@@ -741,7 +817,8 @@ class Controller:
         if np.mean(regions)>0.25 :
             print("error : dragonfly is detected in multiple regions")
 
-        if np.mean(regions) > 0 : self.general_state == "RUNNING"
+        if np.mean(regions) > 0 : self.dragonfly_seen = True
+        else : self.dragonfly_seen = False
 
         return regions
 
