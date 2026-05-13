@@ -181,9 +181,12 @@ class Controller:
         self.alpha_fast = 2/(8+1)   # ~0.22
         self.upside_down = False 
 
-        # ======== plots ========
+        # ======== plots and display ========
         self.trajectory_states = []
-
+        self.trajectory_states = []
+        self.trajectory_wind_perceived = []  # what the fly thinks
+        self.last_predicted_wind = 0 
+        
 ###################################################################################
 ################################# STEP FUNCTION ###################################
 ###################################################################################
@@ -214,11 +217,6 @@ class Controller:
             #if self.count < 3 : print("found immediatly")
             self.last_odor_drives = self.odor_drives # will be the our aim if we lose the smell next step
         
-        """
-        if self.general_state == "SEARCHING" :
-            self.odor_drives = np.array([1.5, 0.5])  # lean right
-            self.odor_drives = 0.5*self.odor_drives 
-        """
         
         steps_since_odor = self.count - self.t_last_odor # how long it's been since we lost the smell
         if steps_since_odor <= self.LOST_THRESHOLD: 
@@ -243,15 +241,6 @@ class Controller:
             """
 
         if self.odor_state != self.prev_state: # change of state
-            """
-            if self.odor_state == "TRACKING":
-                print(f"Step {self.count}: Found the smell !") # we had lost it, now we found it
-            elif self.odor_state == "LOST":
-                print(f"Step {self.count}: Lost the smell :( ")
-                #if self.wind_state == "INTERFERING": print('still hope') 
-                #else : print('lost for good')
-            #print(f"Step {self.count}: {self.odor_state} (mean_odor={mean_odor:.6f})")
-            """
             print(f"Step {self.count}: odor state -> {self.odor_state} (mean={mean_odor:.2e})")
             self.prev_state = self.odor_state
 
@@ -302,9 +291,18 @@ class Controller:
             yaw_diff   = euler_l[2] - euler_r[2]
             
             predicted_direction = wind_analysis(self, pitch_diff, roll_diff, yaw_diff)
+            self.last_predicted_wind = predicted_direction  # store latest angle
             print(f"Step {self.step_count}: predicted wind direction = {predicted_direction}°, so {self.wind_state}")
             print(f"Step {self.step_count}: current state = {self.general_state}")
-
+            """
+            if self.step_count % 1000 == 0:
+                # ... existing antenna code ...
+                #predicted_direction = wind_analysis(self, pitch_diff, roll_diff, yaw_diff)
+                self.last_predicted_wind = predicted_direction  # store latest angle
+                print(f"Step {self.step_count}: wind={self.wind_state}")
+            """
+        # every step, append current best known angle
+        self.trajectory_wind_perceived.append(self.last_predicted_wind)
 
 
         # ======== Finite State Machine ========
@@ -357,17 +355,7 @@ class Controller:
             elif self.avoidance_direction == 1:
                 self.turn_right()  
             action_drives = self.odor_drives
-                
-            """
-            self.avoidance_timer -= 1
 
-            if self.avoidance_timer <= 0:
-                # Fin de l'évitement
-                self.general_state == "SEARCHING"
-                self.avoiding_obstacle = False
-                self.avoidance_direction = 0
-                self.no_turn() 
-            """
         elif self.general_state == "TRACKING" :
             self.speed = SUSPICIOUS
             self.k = 1
@@ -379,32 +367,8 @@ class Controller:
             action_drives = self.last_odor_drives  # follow last known good direction
 
 
-        """
-        # ======== Obstacle avoidance ========
-        if self.avoiding_obstacle:
-            self.general_state == "AVOIDING"
 
-            if self.avoidance_direction == -1:
-                self.turn_left()
-            elif self.avoidance_direction == 1:
-                self.turn_right()  
-            else :
-                self.speed = SUSPICIOUS
-        
-        self.avoidance_timer -= 1
-
-        if self.avoidance_timer <= 0:
-            # Fin de l'évitement
-            self.general_state == "SEARCHING"
-            self.avoiding_obstacle = False
-            self.avoidance_direction = 0
-            self.no_turn()
-        """
-
-
-        
-        
-        
+            
         # slow down situations to avoid getting flipped, no matter the state
         if self.current_slope_category == "carreful_upsidedown":
             self.speed = 0.2  # almost stop, let physics stabilize
@@ -415,14 +379,6 @@ class Controller:
         """
 
         # ======== Instructions to body =======
-        """
-        if self.upside_down == True :
-            # Drive legs asymmetrically to generate a rolling torque
-            self.odor_drives = np.array([2.0, 0.0])  # full force one side
-            self.speed = SUSPICIOUS * 2
-            self.k = TURN_COEFF * 2
-            #print('trying my best')
-        """
 
         #drives = self.speed * self.odor_drives * np.array([self.k, 1/self.k])
         drives = self.speed * action_drives * np.array([self.k, 1/self.k])
@@ -1136,7 +1092,7 @@ def wind_analysis(self, pitch_diff, roll_diff, yaw_diff) :
     return wind_direction
 
 
-def add_state_overlay(frames, states, step_ratio):
+def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perceived_wind_angles=None):
     """
     frames: sim.renderer.frames["birdeyecam"]
     states: controller.trajectory_states
@@ -1149,6 +1105,21 @@ def add_state_overlay(frames, states, step_ratio):
         "RUNNING":  (0, 0, 255),    # red
         "FLIPPED":  (255, 0, 255),  # purple
     }
+    
+    # added to see the wind
+    def draw_arrow(img, angle_deg, center, length, color, label):
+        if angle_deg is None:
+            return
+        angle_rad = np.deg2rad(angle_deg)
+        end = (
+            int(center[0] + length * np.cos(angle_rad)),
+            int(center[1] - length * np.sin(angle_rad))
+        )
+        cv2.arrowedLine(img, center, end, color, 2, tipLength=0.3)
+        cv2.putText(img, f"{label} {int(angle_deg)}°",
+                    (center[0] - 10, center[1] + 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+
 
     result = []
     for i, frame in enumerate(frames):
@@ -1165,5 +1136,25 @@ def add_state_overlay(frames, states, step_ratio):
             color=color,
             thickness=2
         )
+
+        # actual wind arrow in white, bottom left
+        if actual_wind_angles is not None:
+            wind_idx = min(i * step_ratio, len(actual_wind_angles) - 1)
+            actual_angle = actual_wind_angles[wind_idx]
+            if actual_angle is not None:
+                draw_arrow(f, actual_angle,
+                          center=(60, 430), length=40,
+                          color=(255, 255, 255), label="real")
+
+        # perceived wind arrow in cyan, next to it
+        if perceived_wind_angles is not None:
+            perc_idx = min(i * step_ratio, len(perceived_wind_angles) - 1)
+            perc_angle = perceived_wind_angles[perc_idx]
+            if perc_angle is not None:
+                draw_arrow(f, perc_angle,
+                          center=(160, 430), length=40,
+                          color=(0, 255, 255), label="felt")
+
+
         result.append(f)
     return result
