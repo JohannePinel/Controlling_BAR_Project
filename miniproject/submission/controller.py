@@ -1,4 +1,5 @@
 import numpy as np
+import cv2
 from miniproject.simulation import MiniprojectSimulation
 
 from scipy.spatial.transform import Rotation
@@ -52,6 +53,20 @@ DANGER_THRESHOLD = 20
 
 ODOR_DETECTION_THRESHOLD = 1e-8 
 
+
+# plots
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+
+STATE_COLORS = {
+    "TRACKING": "green",
+    "SEARCHING": "blue",
+    "AVOIDING": "orange",
+    "RUNNING": "red",
+    "FLIPPED": "purple",
+}
+
+
 class Rectangle:
     def __init__(self, x0, x1, y_top, y_bottom, color):
         self.x0 = x0
@@ -80,6 +95,7 @@ class ROI:
         self.inner_segments = [] # list of (x_start ; x_end) 
         self.edge_indices = []
         self.diff_width = 4
+       
 
 class Controller:
     def __init__(self, sim: MiniprojectSimulation, threshold_line = 40, mode="normal", pitch_weight=1): 
@@ -165,6 +181,9 @@ class Controller:
         self.alpha_fast = 2/(8+1)   # ~0.22
         self.upside_down = False 
 
+        # ======== plots ========
+        self.trajectory_states = []
+
 ###################################################################################
 ################################# STEP FUNCTION ###################################
 ###################################################################################
@@ -174,7 +193,7 @@ class Controller:
         # ======== Tracking position ========
         fly_pos = sim.get_body_positions(sim.fly.name)[0]   # Position du thorax
         self.trajectory.append((fly_pos[0], fly_pos[1]))    # Enregistrer (x, y)
-        
+        self.trajectory_states.append(self.general_state)
         # ======== Odor detection ========
         if self.count % OLFACTION_RATE == 2:
             olfaction = sim.get_olfaction(sim.fly.name)
@@ -1008,7 +1027,42 @@ class Controller:
         if r > 100 and g < 50 and b < 50:
             return True
         return False
+    ######################### 
+    #PLOTS
+    #########################
+    def plot_trajectory_with_states(self, save_path="trajectory_states.png"):
+        if len(self.trajectory) == 0:
+            print("No trajectory to plot")
+            return
 
+        x = [p[0] for p in self.trajectory]
+        y = [p[1] for p in self.trajectory]
+        states = self.trajectory_states  # we'll add this below
+
+        fig, ax = plt.subplots(figsize=(12, 8))
+
+        # Plot trajectory colored by state
+        for i in range(len(x) - 1):
+            color = STATE_COLORS.get(states[i], "gray")
+            ax.plot(x[i:i+2], y[i:i+2], color=color, linewidth=2, alpha=0.7)
+
+        # Start and end markers
+        ax.plot(x[0], y[0], 'ko', markersize=10, label='Start')
+        ax.plot(x[-1], y[-1], 'k*', markersize=14, label='End')
+
+        # Legend
+        patches = [mpatches.Patch(color=c, label=s) for s, c in STATE_COLORS.items()]
+        ax.legend(handles=patches, loc='upper left')
+
+        ax.set_xlabel('X (mm)')
+        ax.set_ylabel('Y (mm)')
+        ax.set_title('Top-down trajectory (colored by state)')
+        ax.grid(True, alpha=0.3)
+        ax.axis('equal')
+
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        print(f"Saved: {save_path}")
 ##########################################################################################
 ############################## Odor processing functions #################################
 ##########################################################################################
@@ -1080,3 +1134,36 @@ def wind_analysis(self, pitch_diff, roll_diff, yaw_diff) :
                     wind_direction = 225
                     self.wind_state = "SILENT"
     return wind_direction
+
+
+def add_state_overlay(frames, states, step_ratio):
+    """
+    frames: sim.renderer.frames["birdeyecam"]
+    states: controller.trajectory_states
+    step_ratio: how many sim steps per rendered frame
+    """
+    state_colors = {
+        "TRACKING": (0, 255, 0),    # green
+        "SEARCHING": (255, 255, 0), # yellow
+        "AVOIDING": (0, 165, 255),  # orange
+        "RUNNING":  (0, 0, 255),    # red
+        "FLIPPED":  (255, 0, 255),  # purple
+    }
+
+    result = []
+    for i, frame in enumerate(frames):
+        f = frame.copy()
+        # map frame index back to a trajectory step
+        state_idx = min(i * step_ratio, len(states) - 1)
+        state = states[state_idx]
+        color = state_colors.get(state, (255, 255, 255))
+        cv2.putText(
+            f, state,
+            org=(10, 40),
+            fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+            fontScale=1.2,
+            color=color,
+            thickness=2
+        )
+        result.append(f)
+    return result
