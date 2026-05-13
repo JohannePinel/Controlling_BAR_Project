@@ -332,7 +332,7 @@ class MiniprojectSimulation(Simulation):
         self.world.flow_velocity[:2] = wind[:2]
 
     def step(self):
-        if self.enable_wind:
+        if self.enable_wind :
             if self._curr_step % 1000 == 0 and self._curr_step >= 2000:
                 angle_deg = self.rng.uniform(0, 360)
                 self.set_wind(magnitude=50000, angle_deg=angle_deg)
