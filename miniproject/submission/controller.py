@@ -186,6 +186,7 @@ class Controller:
         self.trajectory_states = []
         self.trajectory_wind_perceived = []  # what the fly thinks
         self.last_predicted_wind = 0 
+        self.trajectory_heading = []
         
 ###################################################################################
 ################################# STEP FUNCTION ###################################
@@ -276,7 +277,7 @@ class Controller:
 
         # ======== Wind analysis ========
         self.step_count += 1
-        if self.step_count % 5000 == 0 and self.step_count > 0:
+        if self.step_count % 1000 == 0 and self.step_count > 0:
             # get current antenna data
             antenna_data = sim.get_antenna_data(sim.fly.name)
             
@@ -292,8 +293,8 @@ class Controller:
             
             predicted_direction = wind_analysis(self, pitch_diff, roll_diff, yaw_diff)
             self.last_predicted_wind = predicted_direction  # store latest angle
-            print(f"Step {self.step_count}: predicted wind direction = {predicted_direction}°, so {self.wind_state}")
-            print(f"Step {self.step_count}: current state = {self.general_state}")
+            #print(f"Step {self.step_count}: predicted wind direction = {predicted_direction}°, so {self.wind_state}")
+            #print(f"Step {self.step_count}: current state = {self.general_state}")
             """
             if self.step_count % 1000 == 0:
                 # ... existing antenna code ...
@@ -301,10 +302,16 @@ class Controller:
                 self.last_predicted_wind = predicted_direction  # store latest angle
                 print(f"Step {self.step_count}: wind={self.wind_state}")
             """
-        # every step, append current best known angle
-        self.trajectory_wind_perceived.append(self.last_predicted_wind)
+            
+            # every step, append current best known angle
+            self.trajectory_wind_perceived.append(self.last_predicted_wind)
+        body_rotations = sim.get_body_rotations(sim.fly.name)
+        thorax_quat = body_rotations[0][[1, 2, 3, 0]]
+        rotation = Rotation.from_quat(thorax_quat)
+        euler = rotation.as_euler('xyz', degrees=True)
+        self.trajectory_heading.append(euler[2])  # yaw = heading in world frame
 
-
+        
         # ======== Finite State Machine ========
         if self.upside_down :
             self.general_state = "FLIPPED"
@@ -1058,6 +1065,8 @@ def odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80):
 ##########################################################################################
 ############################### Wind analysis functions ##################################
 ##########################################################################################
+"""
+# ANCIENNE VERSION
 def wind_analysis(self, pitch_diff, roll_diff, yaw_diff) :
     wind_direction = 0
     if pitch_diff < -15 : 
@@ -1091,8 +1100,49 @@ def wind_analysis(self, pitch_diff, roll_diff, yaw_diff) :
                     self.wind_state = "SILENT"
     return wind_direction
 
+"""
 
-def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perceived_wind_angles=None):
+# NOUVELLE VERSION
+def wind_analysis(self, pitch_diff, roll_diff, yaw_diff):
+    wind_direction = 0
+
+    # front/back discrimination from pitch (most reliable signal)
+    if pitch_diff < -13:
+        # wind from front (0°) or front diagonals (45°, 315°)
+        if roll_diff > 2:
+            wind_direction = 45
+            self.wind_state = "INTERFERING"
+        elif roll_diff < -2:
+            wind_direction = 315
+            self.wind_state = "INTERFERING"
+        else:
+            wind_direction = 0
+            self.wind_state = "INTERFERING"
+
+    elif pitch_diff > -9:
+        # wind from behind (180°) or back diagonals (135°, 225°)
+        if roll_diff > 2:
+            wind_direction = 135
+            self.wind_state = "SILENT"
+        elif roll_diff < -2:
+            wind_direction = 225
+            self.wind_state = "SILENT"
+        else:
+            wind_direction = 180
+            self.wind_state = "SILENT"
+
+    else:
+        # side winds (90°, 270°) — pitch_diff in middle range
+        if roll_diff > 0:
+            wind_direction = 90
+            self.wind_state = "SIDE"
+        else:
+            wind_direction = 270
+            self.wind_state = "SIDE"
+
+    return wind_direction
+
+def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perceived_wind_angles=None, headings=None):
     """
     frames: sim.renderer.frames["birdeyecam"]
     states: controller.trajectory_states
@@ -1147,14 +1197,22 @@ def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perce
                           color=(255, 255, 255), label="real")
 
         # perceived wind arrow in cyan, next to it
-        if perceived_wind_angles is not None:
+        if perceived_wind_angles is not None and headings is not None:
             perc_idx = min(i * step_ratio, len(perceived_wind_angles) - 1)
+            head_idx = min(i * step_ratio, len(headings) - 1)
             perc_angle = perceived_wind_angles[perc_idx]
-            if perc_angle is not None:
-                draw_arrow(f, perc_angle,
-                          center=(160, 430), length=40,
-                          color=(0, 255, 255), label="felt")
-
+            heading = headings[head_idx]
+            world_angle = (perc_angle + heading) % 360  # convert to world frame
+            draw_arrow(f, world_angle,
+                    center=(160, 430), length=40,
+                    color=(0, 255, 255), label="felt")
+            
+        if headings is not None:
+            head_idx = min(i * step_ratio, len(headings) - 1)
+            heading = headings[head_idx]
+            draw_arrow(f, heading,
+                    center=(260, 430), length=40,
+                    color=(0, 255, 0), label="fly")
 
         result.append(f)
     return result
