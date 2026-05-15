@@ -42,13 +42,13 @@ HEIGHT_INCR = (Y_LOW - Y_HIGH)//2
 # walking
 TURN_RIGHT = 1.25
 TURN_LEFT = 1/TURN_RIGHT
-CONFIDENT = 1.0
-SUSPICIOUS = 0.8
+CONFIDENT = 0.8
+SUSPICIOUS = 0.5
 TURN_COEFF = 2.5
 FLIPPED_FOR_SURE = 200
 RUN_AWAY_FROM_DRAGONFLY = 1.5
 
-AVOIDANCE_DURATION = 200 
+AVOIDANCE_DURATION = 75 
 DANGER_THRESHOLD = 100 
 AVOIDANCE_DRAGONFLY_DURATION = 100
 
@@ -262,7 +262,7 @@ class Controller:
             if self.is_flipped(sim, im):
                 self.upside_down = True
                 #self.recover_fly(im)
-                #print('mother I fell')
+                print('mother I fell')
             else :
                 self.upside_down = False
     
@@ -272,15 +272,15 @@ class Controller:
             
             self.detect_line_jump(sim) # calls detection of both obstacles and dragonfly
             self.decide_avoidance_strategy()
-            self.dragonfly_avoidance_strategy()
+            #self.dragonfly_avoidance_strategy()
             self.show_rectangles(im)
 
 
-         # ======== Dragonfly avoidance ========
+        # ======== Dragonfly avoidance ========
         
         
         # ======== Obstacle avoidance ========
-        if self.avoiding_obstacle or self.avoiding_dragonfly:
+        if self.avoiding_obstacle :# or self.avoiding_dragonfly:
             if self.avoidance_direction == -1:
                 self.turn_left()
             elif self.avoidance_direction == 1:
@@ -305,10 +305,10 @@ class Controller:
                 self.avoiding_dragonfly = False
                 self.avoidance_direction = 0
                 self.no_turn()
-                # ======== Obstacle / Dragonfly detection ========
-                self.detect_line_jump(sim) # calls detection of both obstacles and dragonfly
-                self.decide_avoidance_strategy()
-                self.show_rectangles(im)
+                # # ======== Obstacle / Dragonfly detection ========
+                # self.detect_line_jump(sim) # calls detection of both obstacles and dragonfly
+                # self.decide_avoidance_strategy()
+                # self.show_rectangles(im)
 
         
         # ======== Visualization ========
