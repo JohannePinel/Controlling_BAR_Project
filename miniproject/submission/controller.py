@@ -4,6 +4,8 @@ from miniproject.simulation import MiniprojectSimulation
 
 from scipy.spatial.transform import Rotation
 from flygym.examples.locomotion import TurningController
+import matplotlib.pyplot as plt
+
 
 
 RED = 0
@@ -15,7 +17,7 @@ COLOR_BLUE = [0, 0, 255]
 COLOR_BLACK = [0, 0, 0]
 
 # rates
-VISION_RATE = 200
+VISION_RATE = 100 #avant 200 test
 PITCH_DETECTION_RATE = 50
 OLFACTION_RATE = 100
 
@@ -42,14 +44,15 @@ HEIGHT_INCR = (Y_LOW - Y_HIGH)//2
 # walking
 TURN_RIGHT = 1.25
 TURN_LEFT = 1/TURN_RIGHT
-CONFIDENT = 0.8
+CONFIDENT = 1
 SUSPICIOUS = 0.5
-TURN_COEFF = 2.5
+TURN_COEFF = 1.5
 FLIPPED_FOR_SURE = 200
 RUN_AWAY_FROM_DRAGONFLY = 1.5
 
-AVOIDANCE_DURATION = 75 
-DANGER_THRESHOLD = 100 
+ESCAPE_DURATION = 50
+AVOIDANCE_DURATION = 100 
+DANGER_THRESHOLD = 30 
 AVOIDANCE_DRAGONFLY_DURATION = 100
 
 
@@ -59,6 +62,7 @@ ODOR_DETECTION_THRESHOLD = 1e-8
 # plots
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import random
 
 STATE_COLORS = {
     "TRACKING": "green",
@@ -162,6 +166,11 @@ class Controller:
         self.avoidance_dragonfly_timer = 0
         self.avoidance_direction = 0            # -1 = gauche, 1 = droite, 0 = pas d'évitement
         self.danger_zone_index = -1             # Index de la zone dangereuse (0-3)
+        self.escape_timer = 0
+        self.stuck = False
+        self.consecutive_detections = 0
+        self.last_obstacle_zone = 0
+
 
         # ======== walking inhibition ========
         self.k = 1
@@ -261,7 +270,7 @@ class Controller:
 
             if self.is_flipped(sim, im):
                 self.upside_down = True
-                #self.recover_fly(im)
+                self.recover_fly(im)
                 print('mother I fell')
             else :
                 self.upside_down = False
@@ -272,39 +281,43 @@ class Controller:
             
             self.detect_line_jump(sim) # calls detection of both obstacles and dragonfly
             self.decide_avoidance_strategy()
-            #self.dragonfly_avoidance_strategy()
             self.show_rectangles(im)
 
+            #self.is_stuck()
+        
+        
 
+            #self.dragonfly_avoidance_strategy()
+            
         # ======== Dragonfly avoidance ========
         
         
-        # ======== Obstacle avoidance ========
-        if self.avoiding_obstacle :# or self.avoiding_dragonfly:
-            if self.avoidance_direction == -1:
-                self.turn_left()
-            elif self.avoidance_direction == 1:
-                self.turn_right()
+        # # ======== Obstacle avoidance ========
+        # if self.avoiding_obstacle :# or self.avoiding_dragonfly:
+        #     if self.avoidance_direction == -1:
+        #         self.turn_left()
+        #     elif self.avoidance_direction == 1:
+        #         self.turn_right()
             
-            else :
-                self.speed = SUSPICIOUS
+        #     else :
+        #         self.speed = SUSPICIOUS
 
-        if self.avoiding_dragonfly == True :
-                    self.avoiding_obstacle = False
+        # # if self.avoiding_dragonfly == True :
+        # #             self.avoiding_obstacle = False
 
 
-        if self.avoiding_dragonfly and not self.avoiding_obstacle:
-            self.speed = RUN_AWAY_FROM_DRAGONFLY
+        # # if self.avoiding_dragonfly and not self.avoiding_obstacle:
+        # #     self.speed = RUN_AWAY_FROM_DRAGONFLY
 
-        self.avoidance_timer -= 1
-        self.avoidance_dragonfly_timer -= 1
+        # # self.avoidance_dragonfly_timer -= 1
 
-        if self.avoidance_timer <= 0 or self.avoidance_dragonfly_timer <= 0:
-                # Fin de l'évitement
-                self.avoiding_obstacle = False
-                self.avoiding_dragonfly = False
-                self.avoidance_direction = 0
-                self.no_turn()
+
+        # if self.avoidance_timer <= 0 or self.avoidance_dragonfly_timer <= 0:
+        #         # Fin de l'évitement
+        #         self.avoiding_obstacle = False
+        #         self.avoiding_dragonfly = False
+        #         self.avoidance_direction = 0
+        #         self.no_turn()
                 # # ======== Obstacle / Dragonfly detection ========
                 # self.detect_line_jump(sim) # calls detection of both obstacles and dragonfly
                 # self.decide_avoidance_strategy()
@@ -350,6 +363,7 @@ class Controller:
 
 
         # ======== Finite State Machine ========
+
         if self.upside_down :
             self.general_state = "FLIPPED"
 
@@ -357,9 +371,15 @@ class Controller:
         elif self.dragonfly_seen:  
             self.general_state = "RUNNING"
 
+            
+        elif self.stuck:
+            self.general_state = "ESCAPING"
+
+
         # Priority n°2: obstacle
         elif self.avoiding_obstacle:
             self.general_state = "AVOIDING"
+
 
         # Priority n°3: smell tracking
         elif self.odor_state:
@@ -368,13 +388,23 @@ class Controller:
         else:
             self.general_state = "SEARCHING"
 
-        # avoidance timer
-        self.avoidance_timer -= 1
-        if self.avoidance_timer <= 0:
-            # Fin de l'évitement
+
+        if self.avoidance_timer > 0:
+            self.avoidance_timer -= 1
+
+        if self.avoidance_timer == 0:
             self.avoiding_obstacle = False
             self.avoidance_direction = 0
             self.no_turn() 
+   
+        if self.escape_timer > 0:
+            self.escape_timer -= 1
+
+        if self.escape_timer == 0:
+            self.stuck = False
+
+        # if self.escape_timer < 30 and self.avoiding_obstacle == False :
+        #     self.stuck = False
 
 
         # Behaviour according to state of the fly
@@ -390,20 +420,30 @@ class Controller:
             # en attendant la vrai version je mets un drive au bol
             self.speed = SUSPICIOUS * 1.5
             self.k = 1
-            action_drives = np.array([1.0, 1.0])    
+            action_drives = np.array([1.0, 1.0])   
 
-        elif self.general_state == "AVOIDING" : 
-            self.speed = SUSPICIOUS
+        elif self.general_state == "ESCAPING":
+            self.speed = SUSPICIOUS * 0.5 # Vitesse réduite pour tourner
+            if self.danger_zone_index <= 1: 
+                self.turn_left()
+            else:  
+                self.turn_right()
+            self.k *= -1
+            action_drives = np.array([1.0, 1.0])
+
+
+        elif self.general_state == "AVOIDING" :
+            self.speed = SUSPICIOUS *1.5
             if self.avoidance_direction == -1:
                 self.turn_left()
             elif self.avoidance_direction == 1:
                 self.turn_right()  
-            action_drives = self.odor_drives
+            action_drives = np.array([1.0, 1.0])*1.2
 
         elif self.general_state == "TRACKING" :
             self.speed = SUSPICIOUS
             self.k = 1
-            action_drives = self.odor_drives
+            action_drives = self.odor_drives * 1.5
 
         else:  # SEARCHING
             self.speed = SUSPICIOUS * 0.7  # slow down to cast around
@@ -415,17 +455,22 @@ class Controller:
             
         # slow down situations to avoid getting flipped, no matter the state
         if self.current_slope_category == "carreful_upsidedown":
-            self.speed = 0.2  # almost stop, let physics stabilize
+            self.speed *= 0.5  # almost stop, let physics stabilize
         """
         if self.wind_state == "SIDE":
             self.speed = 0
             #print('stopped because Im scared to fall')
         """
+        # ======== If stuck  =======
+
+
 
         # ======== Instructions to body =======
 
         #drives = self.speed * self.odor_drives * np.array([self.k, 1/self.k])
         drives = self.speed * action_drives * np.array([self.k, 1/self.k])
+
+
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
     
@@ -477,24 +522,61 @@ class Controller:
             self.danger_zone_index = idx_max
             
             if idx_max == 0 or idx_max == 1:  # Obstacle à gauche
-                #print("danger à gauche, je vire à droite", max_danger)
 
                 self.avoidance_direction = 1
                 if idx_max == 1: 
-                    self.speed = SUSPICIOUS * 0.5 * 1/idx_max # plus l'obstacle est proche du centre, plus la mouche ralentit pour éviter
+                    self.speed = SUSPICIOUS * 0.5    # plus l'obstacle est proche du centre, plus la mouche ralentit pour éviter
+            
             else: # Obstacle à droite
                 self.avoidance_direction = -1
-                #print("danger à droite, je vire à gauche", max_danger)
                 if idx_max == 2: 
-                    self.speed = SUSPICIOUS * 0.5 *1/idx_max
+                    self.speed = SUSPICIOUS * 0.5
             
             self.avoiding_obstacle = True
             self.avoidance_timer = AVOIDANCE_DURATION
-        
+
+            if idx_max == 1 or idx_max == 2 :
+                if self.last_obstacle_zone == self.danger_zone_index:
+                    self.consecutive_detections += 1
+                else:
+                    self.consecutive_detections = 1
+                self.last_obstacle_zone = self.danger_zone_index
+
+                if self.consecutive_detections >= 6:
+                        self.stuck = True
+                        self.escape_timer = ESCAPE_DURATION
+                        # self.general_state = "ESCAPING"
+
+                        #print ('j\'ai capté les 3 d\'affilé')
+
+                        self.consecutive_detections = 0
+
+            else:
+                self.consecutive_detections = 0
+
+
+                    
         if len(self.trajectory) > 0:
             current_pos = self.trajectory[-1]
             self.obstacle_detection_points.append(current_pos)
             self.obs = False
+
+    def is_stuck(self):
+
+        if len(self.trajectory) < 5:
+            return False
+
+        recent = np.array(self.trajectory[-5:])
+
+        path = np.sum(np.linalg.norm(np.diff(recent, axis=0), axis=1))
+        net = np.linalg.norm(recent[-1] - recent[0])
+
+        if path == 0:
+            return True
+
+        efficiency = net / (path + 1e-6)
+
+        return efficiency < 0.1
 
     def comparison_obstacles(self):
         """
@@ -543,7 +625,6 @@ class Controller:
         Trace la trajectoire de la mouche en rouge et marque les points 
         de détection d'obstacles en noir.
         """
-        import matplotlib.pyplot as plt
         
         if len(self.trajectory) == 0:
             print(" Aucune trajectoire à tracer")
