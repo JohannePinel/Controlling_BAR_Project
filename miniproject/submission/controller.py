@@ -281,6 +281,7 @@ class Controller:
             
             self.detect_line_jump(sim) # calls detection of both obstacles and dragonfly
             self.decide_avoidance_strategy()
+            self.dragonfly_avoidance_strategy()
             self.show_rectangles(im)
 
        
@@ -361,6 +362,12 @@ class Controller:
         if self.escape_timer == 0:
             self.stuck = False
 
+        if self.avoidance_dragonfly_timer > 0:
+            self.avoidance_dragonfly_timer -= 1
+
+        if self.avoidance_dragonfly_timer == 0:
+            self.avoiding_dragonfly = False
+
         # if self.escape_timer < 30 and self.avoiding_obstacle == False :
         #     self.stuck = False
 
@@ -375,8 +382,7 @@ class Controller:
 
         elif self.general_state == "RUNNING" :
             # running away from dragonfly
-            # en attendant la vrai version je mets un drive au bol
-            self.speed = SUSPICIOUS * 1.5
+            self.speed = SUSPICIOUS * 3
             self.k = 1
             action_drives = np.array([1.0, 1.0])   
 
@@ -456,8 +462,9 @@ class Controller:
         regions = self.where_is_dragonfly()
         
         if np.mean(regions) > 0.25 or np.mean(regions) == 0: # if the dragonfly is detected in multiple regions, we are not sure about where it is and we do not want to take the risk to turn in the wrong direction
+            self.avoiding_dragonfly = False
             return
-        print("dragonfly detected in region(s) :", regions)
+        #print("dragonfly detected in region(s) :", regions)
         idx_max = np.argmax(regions)
         
         if idx_max == 0 or idx_max == 1:  # Dragonfly à gauche
@@ -927,6 +934,7 @@ class Controller:
 
         if np.mean(regions) > 0 : self.dragonfly_seen = True
         else : self.dragonfly_seen = False
+        
 
         return regions
 
