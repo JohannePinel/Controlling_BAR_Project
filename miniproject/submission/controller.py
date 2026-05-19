@@ -449,14 +449,14 @@ class Controller:
         
         
         if self.current_slope_category == "carreful_upsidedown": # FAIRE AUTRES ROTATIONS
-            self.speed = self.speed * 0.7  # almost stop, let physics stabilize
-            self.general_state = "SLOPE"
+            self.speed = self.speed * 0.5  # almost stop, let physics stabilize
+            if not(self.general_state == "FLIPPED") : self.general_state = "SLOPE"
         
         if self.wind_state == "SIDE":
             self.speed = self.speed* 0.3 # quand à 0.1 elle se fait moins boloss par le vent
             #print('stopped because Im scared to fall')
             self.general_state = "SIDE WIND"
-        
+    
 
 
 
@@ -1029,6 +1029,12 @@ class Controller:
 
             self.prev_pitch = self.pitch
             self.pitch = pitch
+        
+        if np.abs(roll) > 0.7 :
+            self.upside_down = True
+            #print('Roll is : ', np.abs(roll))
+        else : self.upside_down = False   
+           
         
         return 0
     
