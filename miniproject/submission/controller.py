@@ -198,8 +198,7 @@ class Controller:
         self.trajectory_states = []
         self.trajectory_states = []
         self.trajectory_wind_perceived = []  # what the fly thinks
-        self.last_predicted_wind = [0]
-        self.trajectory_heading = []
+        self.last_predicted_wind = 0 
         
 ###################################################################################
 ################################# STEP FUNCTION ###################################
@@ -294,7 +293,7 @@ class Controller:
 
         # ======== Wind analysis ========
         self.step_count += 1
-        if self.step_count % 1000 == 0 and self.step_count > 0:
+        if self.step_count % 5000 == 0 and self.step_count > 0:
             # get current antenna data
             antenna_data = sim.get_antenna_data(sim.fly.name)
             
@@ -310,17 +309,19 @@ class Controller:
             
             predicted_direction = wind_analysis(self, pitch_diff, roll_diff, yaw_diff)
             self.last_predicted_wind = predicted_direction  # store latest angle
-            
+            print(f"Step {self.step_count}: predicted wind direction = {predicted_direction}°, so {self.wind_state}")
+            print(f"Step {self.step_count}: current state = {self.general_state}")
+            """
+            if self.step_count % 1000 == 0:
+                # ... existing antenna code ...
+                #predicted_direction = wind_analysis(self, pitch_diff, roll_diff, yaw_diff)
+                self.last_predicted_wind = predicted_direction  # store latest angle
+                print(f"Step {self.step_count}: wind={self.wind_state}")
+            """
         # every step, append current best known angle
         self.trajectory_wind_perceived.append(self.last_predicted_wind)
-       
-        body_rotations = sim.get_body_rotations(sim.fly.name)
-        thorax_quat = body_rotations[0][[1, 2, 3, 0]]
-        rotation = Rotation.from_quat(thorax_quat)
-        euler = rotation.as_euler('xyz', degrees=True)
-        self.trajectory_heading.append(euler[2])  # yaw = heading in world frame
 
-        
+
         # ======== Finite State Machine ========
 
         if self.upside_down :
@@ -362,14 +363,16 @@ class Controller:
         if self.escape_timer == 0:
             self.stuck = False
 
+        # if self.escape_timer < 30 and self.avoiding_obstacle == False :
+        #     self.stuck = False
+
         if self.avoidance_dragonfly_timer > 0:
             self.avoidance_dragonfly_timer -= 1
 
         if self.avoidance_dragonfly_timer == 0:
             self.avoiding_dragonfly = False
-
-        # if self.escape_timer < 30 and self.avoiding_obstacle == False :
-        #     self.stuck = False
+            self.avoidance_direction = 0
+            self.no_turn()
 
 
         # Behaviour according to state of the fly
@@ -382,7 +385,8 @@ class Controller:
 
         elif self.general_state == "RUNNING" :
             # running away from dragonfly
-            self.speed = SUSPICIOUS * 3
+            # en attendant la vrai version je mets un drive au bol
+            self.speed = SUSPICIOUS * 1.5
             self.k = 1
             action_drives = np.array([1.0, 1.0])   
 
@@ -411,18 +415,17 @@ class Controller:
 
             #action_drives = np.array([0.1, 2.5])
 
-            self.speed = SUSPICIOUS*0.5
+            self.speed = SUSPICIOUS*1
 
         elif self.general_state == "TRACKING" :
             self.speed = SUSPICIOUS
             self.k = 1
-            action_drives = self.odor_drives * 2
+            action_drives = self.odor_drives * 3
 
         else:  # SEARCHING
             self.speed = SUSPICIOUS * 0.7  # slow down to cast around
             self.k = 1
             action_drives = self.last_odor_drives  # follow last known good direction
-
 
 
             
@@ -464,7 +467,6 @@ class Controller:
         if np.mean(regions) > 0.25 or np.mean(regions) == 0: # if the dragonfly is detected in multiple regions, we are not sure about where it is and we do not want to take the risk to turn in the wrong direction
             self.avoiding_dragonfly = False
             return
-        #print("dragonfly detected in region(s) :", regions)
         idx_max = np.argmax(regions)
         
         if idx_max == 0 or idx_max == 1:  # Dragonfly à gauche
@@ -527,7 +529,8 @@ class Controller:
 
             else:
                 self.consecutive_detections = 0
-
+        else : 
+            self.avoiding_obstacle = False
 
                     
         # if len(self.trajectory) > 0:
@@ -934,7 +937,6 @@ class Controller:
 
         if np.mean(regions) > 0 : self.dragonfly_seen = True
         else : self.dragonfly_seen = False
-        
 
         return regions
 
@@ -1199,39 +1201,41 @@ def odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80):
 ##########################################################################################
 ############################### Wind analysis functions ##################################
 ##########################################################################################
-
 def wind_analysis(self, pitch_diff, roll_diff, yaw_diff) :
     wind_direction = 0
-    if pitch_diff < -14 : 
-        wind_direction = [0]
+    if pitch_diff < -15 : 
+        wind_direction = 0
         self.wind_state = "INTERFERING" # the wind interfers with the smell if we are moving towards the source
     elif pitch_diff > -8 : 
-        wind_direction = [180]
+        wind_direction = 180
         self.wind_state = "SILENT" # frontward wind, we can still smell the source if we are moving towards it
     else :
-        if -2 < roll_diff < 2:
-            wind_direction = [90,270] # or 270, we do not know
-            self.wind_state = "SIDE"
-        elif roll_diff < -2:
-            if yaw_diff > 0 : 
-                wind_direction = [315]
-                self.wind_state = "INTERFERING"
-            else : 
-                wind_direction = [225]
-                self.wind_state = "SILENT"
-        elif roll_diff > 2 :
-            if yaw_diff > 0 : 
-                wind_direction = [45]
-                self.wind_state = "INTERFERING"
-            else : 
-                wind_direction = [135]
-                self.wind_state = "SILENT"
-    
-    self.last_predicted_wind = wind_direction  # now a list
+        if roll_diff > 0:
+            if roll_diff < 1 : 
+                wind_direction = 270
+                self.wind_state = "SIDE"
+            else :
+                if yaw_diff > 0 : 
+                    wind_direction = 45
+                    self.wind_state = "INTERFERING"
+                else : 
+                    wind_direction = 135
+                    self.wind_state = "SILENT"
+        if roll_diff < 0:
+            if roll_diff > -1 : 
+                wind_direction = 90
+                self.wind_state = "SIDE"
+            else :
+                if yaw_diff > 0 : 
+                    wind_direction = 315
+                    self.wind_state = "INTERFERING"
+                else : 
+                    wind_direction = 225
+                    self.wind_state = "SILENT"
     return wind_direction
 
 
-def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perceived_wind_angles=None, headings=None):
+def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perceived_wind_angles=None):
     """
     frames: sim.renderer.frames["birdeyecam"]
     states: controller.trajectory_states
@@ -1258,7 +1262,7 @@ def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perce
         cv2.putText(img, f"{label} {int(angle_deg)}°",
                     (center[0] - 10, center[1] + 20),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
-        
+
 
     result = []
     for i, frame in enumerate(frames):
@@ -1286,36 +1290,14 @@ def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perce
                           color=(255, 255, 255), label="real")
 
         # perceived wind arrow in cyan, next to it
-        if perceived_wind_angles is not None and headings is not None:
+        if perceived_wind_angles is not None:
             perc_idx = min(i * step_ratio, len(perceived_wind_angles) - 1)
-            head_idx = min(i * step_ratio, len(headings) - 1)
-            directions = perceived_wind_angles[perc_idx]
-            heading = headings[head_idx]
-            
-            if len(directions) == 2:
-                # SIDE wind: draw both arrows from the same center
-                for angle in directions:
-                    world_angle = (angle + heading) % 360
-                    draw_arrow(f, world_angle,
-                            center=(160, 430), length=40,
-                            color=(0, 255, 255), label="")
-                # add label once
-                cv2.putText(f, "felt: SIDE",
-                        (140, 455),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
-            else:
-                # single known direction
-                world_angle = (directions[0] + heading) % 360
-                draw_arrow(f, world_angle,
-                        center=(160, 430), length=40,
-                        color=(0, 255, 255), label=f"felt")
-        
-        if headings is not None:
-            head_idx = min(i * step_ratio, len(headings) - 1)
-            heading = headings[head_idx]
-            draw_arrow(f, heading,
-                    center=(260, 430), length=40,
-                    color=(0, 255, 0), label="fly")
+            perc_angle = perceived_wind_angles[perc_idx]
+            if perc_angle is not None:
+                draw_arrow(f, perc_angle,
+                          center=(160, 430), length=40,
+                          color=(0, 255, 255), label="felt")
+
 
         result.append(f)
     return result
