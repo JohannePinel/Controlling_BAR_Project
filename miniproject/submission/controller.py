@@ -422,7 +422,8 @@ class Controller:
             self.speed = SUSPICIOUS * 0.7  # slow down to cast around
             self.k = 1
             if self.odor_state == "STILL_HOPE":
-                action_drives = self.last_odor_drives # follow last known good direction             
+                action_drives = self.last_odor_drives # follow last known good direction 
+                self.general_state = "BLIND FOLLOWING"            
             else : 
                 self.odor_drives = np.array([1.5, 0.5])  # lean right
                 action_drives = 0.5*self.odor_drives 
@@ -430,17 +431,17 @@ class Controller:
 
 
 
-            
+        """
         # slow down situations to avoid getting flipped, no matter the state
         if self.current_slope_category == "carreful_upsidedown":
-            self.speed = SUSPICIOUS * 0.1  # almost stop, let physics stabilize
-            self.general_state = "SLOPE"
+            self.speed = SUSPICIOUS * 0.8  # almost stop, let physics stabilize
+            #self.general_state = "SLOPE"
         
         if self.wind_state == "SIDE":
-            self.speed = SUSPICIOUS* 0.1 # quand à 0.1 elle se fait moins boloss par le vent
+            self.speed = SUSPICIOUS* 0.8 # quand à 0.1 elle se fait moins boloss par le vent
             #print('stopped because Im scared to fall')
-            self.general_state = "SIDE WIND"
-
+            #self.general_state = "SIDE WIND"
+        """
         
 
 
@@ -1254,7 +1255,8 @@ def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perce
         "FLIPPED":  (255, 0, 255),  # purple
         #temporary new states for debugging
         "SIDE WIND": (255, 0, 255),
-        "SLOPE" : (255, 0, 255)
+        "SLOPE" : (255, 0, 255),
+        "BLIND FOLLOWING" : (255, 0, 255)
     }
     
     # added to see the wind
