@@ -125,6 +125,7 @@ class Controller:
         self.pitch_collection_window = 4 
         self.pitch_weight = pitch_weight
         self.th_danger_upsidedown = 0.3
+        self.th_danger_roll = 0.5
         self.th_slope_category = 0.08
         self.maybe_flipped = 0
         self.prev_pitch = 5 # if it was 0, the first computation of the pitch_derivative is too high and 
@@ -446,13 +447,13 @@ class Controller:
                         # slow down situations to avoid getting flipped, no matter the state
   
         
-        """
-        if self.current_slope_category == "carreful_upsidedown":
-            self.speed = self.speed * 0.9  # almost stop, let physics stabilize
+        
+        if self.current_slope_category == "carreful_upsidedown": # FAIRE AUTRES ROTATIONS
+            self.speed = self.speed * 0.7  # almost stop, let physics stabilize
             self.general_state = "SLOPE"
-        """
+        
         if self.wind_state == "SIDE":
-            self.speed = self.speed* 0.4 # quand à 0.1 elle se fait moins boloss par le vent
+            self.speed = self.speed* 0.3 # quand à 0.1 elle se fait moins boloss par le vent
             #print('stopped because Im scared to fall')
             self.general_state = "SIDE WIND"
         
@@ -1013,9 +1014,10 @@ class Controller:
         rotation = Rotation.from_quat(thorax_quat)
         euler_angles = rotation.as_euler('xyz')  # [roll, pitch, yaw]
         pitch = euler_angles[1]  # pitch ~[-0.5, 0.5]
+        roll = euler_angles[0]
         
         # Some subjective qualifications
-        if np.abs(pitch) > self.th_danger_upsidedown :
+        if np.abs(pitch) > self.th_danger_upsidedown or np.abs(roll) > self.th_danger_roll :
             self.current_slope_category = "carreful_upsidedown"
         else:
             if pitch > self.th_slope_category:
