@@ -239,6 +239,7 @@ class Controller:
             if self.wind_state != "SILENT": #wind is not forward, so the source is still where we smelled it last
                 #self.odor_drives = self.last_odor_drives
                 self.odor_state = "STILL_HOPE"
+                #self.general_state = "BLIND FOLLOWING"
             else : 
                 #self.odor_drives = np.array([1.5, 0.5])  # lean right
                 #self.odor_drives = 0.5*self.odor_drives 
@@ -344,6 +345,10 @@ class Controller:
         elif self.odor_state == "FOUND":
             self.general_state = "TRACKING"
 
+        elif self.general_state == "BLIND FOLLOWING" and self.odor_state == "FOUND" :# make CLEAN
+            self.general_state = "BLIND FOLLOWING"
+        
+
         else:
             self.general_state = "SEARCHING"
 
@@ -418,30 +423,38 @@ class Controller:
             self.k = 1
             action_drives = self.odor_drives * 2
 
+        elif self.general_state == "BLIND FOLLOWING" :
+            self.speed = SUSPICIOUS 
+            self.k = 1
+            action_drives = self.last_odor_drives # follow last known good direction 
+
         else:  # SEARCHING
             self.speed = SUSPICIOUS * 0.7  # slow down to cast around
             self.k = 1
+            
             if self.odor_state == "STILL_HOPE":
                 action_drives = self.last_odor_drives # follow last known good direction 
-                self.general_state = "BLIND FOLLOWING"            
+                #self.general_state = "BLIND FOLLOWING"            
             else : 
+                self.speed = SUSPICIOUS * 0.3
                 self.odor_drives = np.array([1.5, 0.5])  # lean right
                 action_drives = 0.5*self.odor_drives 
-
-
-
-
-        """
-        # slow down situations to avoid getting flipped, no matter the state
-        if self.current_slope_category == "carreful_upsidedown":
-            self.speed = SUSPICIOUS * 0.8  # almost stop, let physics stabilize
-            #self.general_state = "SLOPE"
+            """
+            self.odor_drives = np.array([1.5, 0.5])  # lean right
+            action_drives = 0.5*self.odor_drives 
+            """
+                        # slow down situations to avoid getting flipped, no matter the state
+  
         
-        if self.wind_state == "SIDE":
-            self.speed = SUSPICIOUS* 0.8 # quand à 0.1 elle se fait moins boloss par le vent
-            #print('stopped because Im scared to fall')
-            #self.general_state = "SIDE WIND"
         """
+        if self.current_slope_category == "carreful_upsidedown":
+            self.speed = self.speed * 0.9  # almost stop, let physics stabilize
+            self.general_state = "SLOPE"
+        """
+        if self.wind_state == "SIDE":
+            self.speed = self.speed* 0.4 # quand à 0.1 elle se fait moins boloss par le vent
+            #print('stopped because Im scared to fall')
+            self.general_state = "SIDE WIND"
         
 
 
