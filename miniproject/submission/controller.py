@@ -332,8 +332,8 @@ class Controller:
             self.general_state = "RUNNING"
 
             
-        elif self.stuck:
-            self.general_state = "ESCAPING"
+        # elif self.stuck:
+        #     self.general_state = "ESCAPING"
 
 
         # Priority n°2: obstacle
@@ -386,7 +386,7 @@ class Controller:
         elif self.general_state == "RUNNING" :
             # running away from dragonfly
             # en attendant la vrai version je mets un drive au bol
-            self.speed = SUSPICIOUS * 1.5
+            self.speed = SUSPICIOUS * 2
             self.k = 1
             action_drives = np.array([1.0, 1.0])   
 
@@ -415,7 +415,7 @@ class Controller:
 
             #action_drives = np.array([0.1, 2.5])
 
-            self.speed = SUSPICIOUS*1
+            self.speed = SUSPICIOUS*0.8
 
         elif self.general_state == "TRACKING" :
             self.speed = SUSPICIOUS
