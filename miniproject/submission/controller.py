@@ -437,8 +437,8 @@ class Controller:
                 action_drives = self.last_odor_drives # follow last known good direction 
                 #self.general_state = "BLIND FOLLOWING"            
             else : 
-                self.speed = SUSPICIOUS * 0.3
-                self.odor_drives = np.array([1.5, 0.5])  # lean right
+                self.speed = SUSPICIOUS 
+                self.odor_drives = np.array([-3, 3])  # lean right
                 action_drives = 0.5*self.odor_drives 
             """
             self.odor_drives = np.array([1.5, 0.5])  # lean right
