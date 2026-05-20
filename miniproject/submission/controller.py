@@ -56,7 +56,7 @@ DANGER_THRESHOLD = 80
 AVOIDANCE_DRAGONFLY_DURATION = 100
 
 
-ODOR_DETECTION_THRESHOLD = 1e-8 
+ODOR_DETECTION_THRESHOLD = 1e-8
 
 
 # plots
@@ -125,6 +125,7 @@ class Controller:
         self.pitch_collection_window = 4 
         self.pitch_weight = pitch_weight
         self.th_danger_upsidedown = 0.3
+        self.th_danger_roll = 0.5
         self.th_slope_category = 0.08
         self.maybe_flipped = 0
         self.prev_pitch = 5 # if it was 0, the first computation of the pitch_derivative is too high and 
@@ -186,7 +187,7 @@ class Controller:
         self.step_count = 0
         self.t_last_odor = 0          # timestep of last odor detection
         self.last_odor_drives = np.ones(2)
-        self.odor_state = "LOST"      # "TRACKING", "RECOVERING", "LOST"
+        self.odor_state = "LOST"      # "FOUND", "LOST"
         self.prev_state = "LOST"
         self.LOST_THRESHOLD = 12     # from paper, 25-38 steps
         #self.RECOVERING_THRESHOLD = 12 
@@ -233,15 +234,16 @@ class Controller:
         
         steps_since_odor = self.count - self.t_last_odor # how long it's been since we lost the smell
         if steps_since_odor <= self.LOST_THRESHOLD: 
-            self.odor_state = "TRACKING"
-        else: # we lost the smell for too long
-            self.odor_state = "LOST"
-            """
+            self.odor_state = "FOUND"
+        else: # we lost the smell for too long          
             if self.wind_state != "SILENT": #wind is not forward, so the source is still where we smelled it last
-                self.odor_drives = self.last_odor_drives
+                #self.odor_drives = self.last_odor_drives
+                self.odor_state = "STILL_HOPE"
+                #self.general_state = "BLIND FOLLOWING"
             else : 
-                self.odor_drives = np.array([1.5, 0.5])  # lean right
-                self.odor_drives = 0.5*self.odor_drives 
+                #self.odor_drives = np.array([1.5, 0.5])  # lean right
+                #self.odor_drives = 0.5*self.odor_drives 
+                self.odor_state = "LOST"
                 '''
                 if (self.count // 50000) % 2 == 0:
                     self.odor_drives = np.array([1.5, 0.5])  # lean right
@@ -251,7 +253,7 @@ class Controller:
                     print('leaning left because I am lost')
                 '''
             # even with forward wind we do not smell it, it is really lost, need to search again, we slow down to find it before moving again
-            """
+            
 
         if self.odor_state != self.prev_state: # change of state
             print(f"Step {self.count}: odor state -> {self.odor_state} (mean={mean_odor:.2e})")
@@ -307,7 +309,7 @@ class Controller:
             roll_diff  = euler_l[1] - euler_r[1]
             yaw_diff   = euler_l[2] - euler_r[2]
             
-            predicted_direction = wind_analysis(self, pitch_diff, roll_diff, yaw_diff)
+            predicted_direction = wind_analysis(self, sim, pitch_diff, roll_diff, yaw_diff)
             self.last_predicted_wind = predicted_direction  # store latest angle
             print(f"Step {self.step_count}: predicted wind direction = {predicted_direction}°, so {self.wind_state}")
             print(f"Step {self.step_count}: current state = {self.general_state}")
@@ -342,8 +344,12 @@ class Controller:
 
 
         # Priority n°3: smell tracking
-        elif self.odor_state:
+        elif self.odor_state == "FOUND":
             self.general_state = "TRACKING"
+
+        elif self.general_state == "BLIND FOLLOWING" and self.odor_state == "FOUND" :# make CLEAN
+            self.general_state = "BLIND FOLLOWING"
+        
 
         else:
             self.general_state = "SEARCHING"
@@ -422,21 +428,45 @@ class Controller:
             self.k = 1
             action_drives = self.odor_drives * 3
 
-        else:  # SEARCHING
-            self.speed = SUSPICIOUS * 0.7  # slow down to cast around
+        elif self.general_state == "BLIND FOLLOWING" :
+            self.speed = SUSPICIOUS 
             self.k = 1
-            action_drives = self.last_odor_drives  # follow last known good direction
+            action_drives = self.last_odor_drives # follow last known good direction 
 
-
+        else:  # SEARCHING
+            self.speed = SUSPICIOUS * 0.5  # slow down to cast around
+            self.k = 1
             
-        # slow down situations to avoid getting flipped, no matter the state
-        if self.current_slope_category == "carreful_upsidedown":
-            self.speed *= 0.5  # almost stop, let physics stabilize
+            if self.odor_state == "STILL_HOPE":
+                action_drives = self.last_odor_drives # follow last known good direction 
+                #self.general_state = "BLIND FOLLOWING"            
+            else : 
+                self.k = TURN_COEFF * 1.5
+                action_drives = np.array([2.0, -1.0])
+
+            """
+            self.odor_drives = np.array([1.5, 0.5])  # lean right
+            action_drives = 0.5*self.odor_drives 
+            """
+                        # slow down situations to avoid getting flipped, no matter the state
+  
+        
+        
+        if self.current_slope_category == "carreful_upsidedown": # FAIRE AUTRES ROTATIONS
+            self.speed = self.speed * 0.6  # almost stop, let physics stabilize
+            if not(self.general_state == "FLIPPED") : self.general_state = "SLOPE"
         """
         if self.wind_state == "SIDE":
-            self.speed = 0
+            self.speed = self.speed* 0.7 # quand à 0.1 elle se fait moins boloss par le vent
             #print('stopped because Im scared to fall')
+            self.general_state = "SIDE WIND"
         """
+
+        if self.current_slope_category == "carreful_upsidedown" and self.wind_state == "SIDE":
+            self.speed = self.speed* 0 # quand à 0.1 elle se fait moins boloss par le vent
+            #print('stopped because Im scared to fall')
+            self.general_state = "SIDE WIND"
+    
 
 
 
@@ -993,9 +1023,10 @@ class Controller:
         rotation = Rotation.from_quat(thorax_quat)
         euler_angles = rotation.as_euler('xyz')  # [roll, pitch, yaw]
         pitch = euler_angles[1]  # pitch ~[-0.5, 0.5]
+        roll = euler_angles[0]
         
         # Some subjective qualifications
-        if np.abs(pitch) > self.th_danger_upsidedown :
+        if np.abs(pitch) > self.th_danger_upsidedown or np.abs(roll) > self.th_danger_roll :
             self.current_slope_category = "carreful_upsidedown"
         else:
             if pitch > self.th_slope_category:
@@ -1007,6 +1038,12 @@ class Controller:
 
             self.prev_pitch = self.pitch
             self.pitch = pitch
+        
+        if np.abs(roll) > 0.7 :
+            self.upside_down = True
+            #print('Roll is : ', np.abs(roll))
+        else : self.upside_down = False   
+           
         
         return 0
     
@@ -1201,7 +1238,8 @@ def odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80):
 ##########################################################################################
 ############################### Wind analysis functions ##################################
 ##########################################################################################
-def wind_analysis(self, pitch_diff, roll_diff, yaw_diff) :
+
+def wind_analysis(self, sim, pitch_diff, roll_diff, yaw_diff) :
     wind_direction = 0
     if pitch_diff < -15 : 
         wind_direction = 0
@@ -1210,28 +1248,26 @@ def wind_analysis(self, pitch_diff, roll_diff, yaw_diff) :
         wind_direction = 180
         self.wind_state = "SILENT" # frontward wind, we can still smell the source if we are moving towards it
     else :
-        if roll_diff > 0:
-            if roll_diff < 1 : 
-                wind_direction = 270
-                self.wind_state = "SIDE"
-            else :
-                if yaw_diff > 0 : 
-                    wind_direction = 45
-                    self.wind_state = "INTERFERING"
-                else : 
-                    wind_direction = 135
-                    self.wind_state = "SILENT"
-        if roll_diff < 0:
-            if roll_diff > -1 : 
-                wind_direction = 90
-                self.wind_state = "SIDE"
-            else :
-                if yaw_diff > 0 : 
-                    wind_direction = 315
-                    self.wind_state = "INTERFERING"
-                else : 
-                    wind_direction = 225
-                    self.wind_state = "SILENT"
+        if -2 < roll_diff < 2:
+            wind_direction = [90,270] # or 270, we do not know
+            self.wind_state = "SIDE"
+        elif roll_diff < -2:
+            if yaw_diff > 0 : 
+                wind_direction = [315]
+                self.wind_state = "INTERFERING"
+            else : 
+                wind_direction = [225]
+                self.wind_state = "SILENT"
+        elif roll_diff > 2 :
+            if yaw_diff > 0 : 
+                wind_direction = [45]
+                self.wind_state = "INTERFERING"
+            else : 
+                wind_direction = [135]
+                self.wind_state = "SILENT"
+    
+    self.last_predicted_wind = wind_direction  # now a list
+    if not(sim.enable_wind) : self.wind_state = "NO WIND"
     return wind_direction
 
 
@@ -1247,6 +1283,10 @@ def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perce
         "AVOIDING": (0, 165, 255),  # orange
         "RUNNING":  (0, 0, 255),    # red
         "FLIPPED":  (255, 0, 255),  # purple
+        #temporary new states for debugging
+        "SIDE WIND": (255, 0, 255),
+        "SLOPE" : (255, 0, 255),
+        "BLIND FOLLOWING" : (255, 0, 255)
     }
     
     # added to see the wind
