@@ -53,7 +53,7 @@ RUN_AWAY_FROM_DRAGONFLY = 1.5
 ESCAPE_DURATION = 150
 AVOIDANCE_DURATION = 200 
 DANGER_THRESHOLD = 80 
-AVOIDANCE_DRAGONFLY_DURATION = 100
+AVOIDANCE_DRAGONFLY_DURATION = 50
 
 
 ODOR_DETECTION_THRESHOLD = 1e-8
@@ -267,6 +267,7 @@ class Controller:
 
         # ======== Color vision ========
         if self.count % VISION_RATE == 0:
+            self.dragonfly_seen = False  # reset each cycle; detection below re-sets if found
             im = self.color_vision(sim)
             self.adapts_ROI_to_slope() 
 
@@ -390,11 +391,15 @@ class Controller:
             action_drives = np.array([2.0, 0.0])
 
         elif self.general_state == "RUNNING" :
-            # running away from dragonfly
-            # en attendant la vrai version je mets un drive au bol
-            self.speed = SUSPICIOUS * 2
+            # run away: turn opposite to the dragonfly's side
+            self.speed = SUSPICIOUS * 3
             self.k = 1
-            action_drives = np.array([1.0, 1.0])   
+            if self.avoidance_direction == -1:   # dragonfly on right → turn left
+                action_drives = np.array([0.2, 2.0])
+            elif self.avoidance_direction == 1:  # dragonfly on left → turn right
+                action_drives = np.array([2.0, 0.2])
+            else:
+                action_drives = np.array([1.0, 1.0])
 
         elif self.general_state == "ESCAPING":
             self.speed = SUSPICIOUS * 0.5
@@ -452,9 +457,9 @@ class Controller:
   
         
         
-        if self.current_slope_category == "carreful_upsidedown": # FAIRE AUTRES ROTATIONS
+        if self.current_slope_category == "carreful_upsidedown" and self.general_state not in ("RUNNING", "FLIPPED"):
             self.speed = self.speed * 0.6  # almost stop, let physics stabilize
-            if not(self.general_state == "FLIPPED") : self.general_state = "SLOPE"
+            self.general_state = "SLOPE"
         """
         if self.wind_state == "SIDE":
             self.speed = self.speed* 0.7 # quand à 0.1 elle se fait moins boloss par le vent
@@ -462,9 +467,8 @@ class Controller:
             self.general_state = "SIDE WIND"
         """
 
-        if self.current_slope_category == "carreful_upsidedown" and self.wind_state == "SIDE":
+        if self.current_slope_category == "carreful_upsidedown" and self.wind_state == "SIDE" and self.general_state != "RUNNING":
             self.speed = self.speed* 0 # quand à 0.1 elle se fait moins boloss par le vent
-            #print('stopped because Im scared to fall')
             self.general_state = "SIDE WIND"
     
 
@@ -947,7 +951,7 @@ class Controller:
         diff = np.diff(is_red.astype(int), prepend=0, append=0)
         roi.edge_indices = np.where(diff != 0)[0].tolist()
 
-        roi.is_active = len(roi.edge_indices) > 0
+        roi.is_active = np.sum(is_red) >= 5  # require at least 5 red pixels to avoid noise
         return roi.is_active
 
 
@@ -956,10 +960,16 @@ class Controller:
         regions = np.zeros(NB_OF_RECT)
         x = self.dragonfly_pos[1]
         separation = 900/NB_OF_RECT
+        
+        n_active = sum(1 for roi in self.all_rois_drag if roi.is_active)
+        if n_active < 2:  # require at least 2 ROIs active to confirm dragonfly
+            self.dragonfly_seen = False
+            return np.zeros(NB_OF_RECT)
 
         for i in range(NB_OF_RECT):
-            if x < (1+i)*separation:
+            if x < (i+1)*separation:
                 regions[i] = 1
+                break
 
         if np.mean(regions)>0.25 :
             #print("error : dragonfly is detected in multiple regions")
@@ -1293,6 +1303,7 @@ def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perce
     def draw_arrow(img, angle_deg, center, length, color, label):
         if angle_deg is None:
             return
+        angle_deg = float(np.asarray(angle_deg).flat[0])
         angle_rad = np.deg2rad(angle_deg)
         end = (
             int(center[0] + length * np.cos(angle_rad)),
