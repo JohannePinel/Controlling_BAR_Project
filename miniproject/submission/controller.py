@@ -56,7 +56,7 @@ DANGER_THRESHOLD = 80
 AVOIDANCE_DRAGONFLY_DURATION = 100
 
 
-ODOR_DETECTION_THRESHOLD = 1e-8 
+ODOR_DETECTION_THRESHOLD = 1e-8
 
 
 # plots
@@ -430,16 +430,16 @@ class Controller:
             action_drives = self.last_odor_drives # follow last known good direction 
 
         else:  # SEARCHING
-            self.speed = SUSPICIOUS * 0.7  # slow down to cast around
+            self.speed = SUSPICIOUS * 0.5  # slow down to cast around
             self.k = 1
             
             if self.odor_state == "STILL_HOPE":
                 action_drives = self.last_odor_drives # follow last known good direction 
                 #self.general_state = "BLIND FOLLOWING"            
             else : 
-                self.speed = SUSPICIOUS 
-                self.odor_drives = np.array([-3, 3])  # lean right
-                action_drives = 0.5*self.odor_drives 
+                self.k = TURN_COEFF * 1.5
+                action_drives = np.array([2.0, -1.0])
+
             """
             self.odor_drives = np.array([1.5, 0.5])  # lean right
             action_drives = 0.5*self.odor_drives 
@@ -449,11 +449,17 @@ class Controller:
         
         
         if self.current_slope_category == "carreful_upsidedown": # FAIRE AUTRES ROTATIONS
-            self.speed = self.speed * 0.5  # almost stop, let physics stabilize
+            self.speed = self.speed * 0.6  # almost stop, let physics stabilize
             if not(self.general_state == "FLIPPED") : self.general_state = "SLOPE"
-        
+        """
         if self.wind_state == "SIDE":
-            self.speed = self.speed* 0.3 # quand à 0.1 elle se fait moins boloss par le vent
+            self.speed = self.speed* 0.7 # quand à 0.1 elle se fait moins boloss par le vent
+            #print('stopped because Im scared to fall')
+            self.general_state = "SIDE WIND"
+        """
+
+        if self.current_slope_category == "carreful_upsidedown" and self.wind_state == "SIDE":
+            self.speed = self.speed* 0 # quand à 0.1 elle se fait moins boloss par le vent
             #print('stopped because Im scared to fall')
             self.general_state = "SIDE WIND"
     
