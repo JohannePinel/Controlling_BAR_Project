@@ -51,8 +51,8 @@ FLIPPED_FOR_SURE = 200
 RUN_AWAY_FROM_DRAGONFLY = 1.5
 
 ESCAPE_DURATION = 150
-AVOIDANCE_DURATION = 200 
-DANGER_THRESHOLD = 80 
+AVOIDANCE_DURATION = 100 
+DANGER_THRESHOLD = 40
 AVOIDANCE_DRAGONFLY_DURATION = 50
 
 
@@ -191,7 +191,7 @@ class Controller:
         self.last_odor_drives = np.ones(2)
         self.odor_state = "LOST"      # "FOUND", "LOST"
         self.prev_state = "LOST"
-        self.LOST_THRESHOLD = 12     # from paper, 25-38 steps
+        self.LOST_THRESHOLD = 100   
         #self.RECOVERING_THRESHOLD = 12 
         self.odor_memory_fast = 0.0        # drives turn decisions
         self.alpha_fast = 2/(8+1)   # ~0.22
@@ -337,10 +337,6 @@ class Controller:
             self.general_state = "RUNNING"
 
             
-        # elif self.stuck:
-        #     self.general_state = "ESCAPING"
-
-
         # Priority n°2: obstacle
         elif self.avoiding_obstacle:
             self.general_state = "AVOIDING"
@@ -350,8 +346,8 @@ class Controller:
         elif self.odor_state == "FOUND":
             self.general_state = "TRACKING"
 
-        elif self.general_state == "BLIND FOLLOWING" and self.odor_state == "FOUND" :# make CLEAN
-            self.general_state = "BLIND FOLLOWING"
+        # elif self.general_state == "BLIND FOLLOWING" and self.odor_state == "FOUND" :
+        #     self.general_state = "BLIND FOLLOWING"
         
 
         else:
@@ -398,36 +394,19 @@ class Controller:
             else:
                 action_drives = np.array([1.0, 1.0])
 
-        elif self.general_state == "ESCAPING":
-            self.speed = SUSPICIOUS * 0.5
-            self.k = 1
-
-            if self.danger_zone_index <= 1:  # Obstacle à gauche
-                #self.turn_right()  
-                action_drives = np.array([1.8, 0.2])  
-            else:  # Obstacle à droite
-                #self.turn_left()  
-                action_drives = np.array([0.2, 1.8])  
-
 
         elif self.general_state == "AVOIDING" :
-            #self.speed = SUSPICIOUS *1.5
+            self.k = 1
             if self.avoidance_direction == -1:
-                #self.turn_left()
-                action_drives = np.array([0.1, 2.5])  
-
-            else :
-               # self.turn_right()  
-                action_drives = np.array([2.5, 0.1]) 
-
-            #action_drives = np.array([0.1, 2.5])
-
-            self.speed = SUSPICIOUS*0.8
+                action_drives = np.array([0.1, 2.5])
+            else:
+                action_drives = np.array([2.5, 0.1])
+            self.speed = SUSPICIOUS * 0.8
 
         elif self.general_state == "TRACKING" :
-            self.speed = SUSPICIOUS
+            self.speed = SUSPICIOUS * 3
             self.k = 1
-            action_drives = self.odor_drives * 3
+            action_drives = self.odor_drives  # already scaled ×3 at odor_drives computation
 
         elif self.general_state == "BLIND FOLLOWING" :
             self.speed = SUSPICIOUS
@@ -451,7 +430,7 @@ class Controller:
                 action_drives = np.array([2.0, -1.0])
 
         
-        if self.current_slope_category == "carreful_upsidedown" and self.general_state not in ("RUNNING", "FLIPPED"):
+        if self.current_slope_category == "carreful_upsidedown" and self.general_state not in ("AVOIDING","RUNNING", "FLIPPED"):
             self.speed = self.speed * 0.6  
             self.general_state = "SLOPE"
 
