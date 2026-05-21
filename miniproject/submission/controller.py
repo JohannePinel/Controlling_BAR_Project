@@ -50,11 +50,10 @@ TURN_COEFF = 3
 FLIPPED_FOR_SURE = 200
 RUN_AWAY_FROM_DRAGONFLY = 1.5
 
-ESCAPE_DURATION = 150
-AVOIDANCE_DURATION = 100 
-DANGER_THRESHOLD = 40
-AVOIDANCE_DRAGONFLY_DURATION = 50
-
+ESCAPE_DURATION = 100
+AVOIDANCE_DURATION = 60 
+DANGER_THRESHOLD = 60
+AVOIDANCE_DRAGONFLY_DURATION = 100 
 
 ODOR_DETECTION_THRESHOLD = 1e-8
 
@@ -112,7 +111,8 @@ class Controller:
         self.count = 0
         self.mode = mode
         self.draw_edges = True
-        self.general_state = "SEARCHING" # can be SEARCHING, TRACKING, AVOIDING, RUNNING (away from the dragonfly)
+        self.general_state = "SEARCHING"
+        self.prev_state_before_running = "SEARCHING"
         
         # ========Color vision parameters========
         self.frames = []
@@ -191,7 +191,7 @@ class Controller:
         self.last_odor_drives = np.ones(2)
         self.odor_state = "LOST"      # "FOUND", "LOST"
         self.prev_state = "LOST"
-        self.LOST_THRESHOLD = 50    # from paper, 25-38 steps
+        self.LOST_THRESHOLD = 250   # ~2.5 olfaction cycles grace period before going LOST
         #self.RECOVERING_THRESHOLD = 12 
         self.odor_memory_fast = 0.0        # drives turn decisions
         self.alpha_fast = 2/(8+1)   # ~0.22
@@ -321,8 +321,9 @@ class Controller:
         if self.upside_down :
             self.general_state = "FLIPPED"
 
-        # Priority n°1: dragonfly 
-        elif self.dragonfly_seen:  
+        # Priority n°1: dragonfly
+        elif self.dragonfly_seen:
+            self.prev_state_before_running = self.general_state  # remember what we were doing
             self.general_state = "RUNNING"
 
             
@@ -335,9 +336,15 @@ class Controller:
         elif self.odor_state == "FOUND":
             self.general_state = "TRACKING"
 
-        elif self.odor_state == "STILL HOPE" :# make CLEAN
+        elif self.odor_state == "STILL_HOPE":
             self.general_state = "BLIND FOLLOWING"
-        
+
+        # # after escaping dragonfly, head back toward last known odor direction
+        # elif self.prev_state_before_running in ("TRACKING", "BLIND FOLLOWING") and \
+        #     not np.array_equal(self.last_odor_drives, np.ones(2)):
+        #     self.general_state = "BLIND FOLLOWING"
+        #     self.prev_state_before_running = "SEARCHING"  
+
         else:
             self.general_state = "SEARCHING"
 
@@ -359,11 +366,10 @@ class Controller:
         
         if self.avoidance_dragonfly_timer > 0:
             self.avoidance_dragonfly_timer -= 1
-
-        if self.avoidance_dragonfly_timer == 0:
-            self.avoiding_dragonfly = False
-            self.avoidance_direction = 0
-            self.no_turn()
+            if self.avoidance_dragonfly_timer == 0 and self.general_state != "RUNNING":
+                self.avoiding_dragonfly = False
+                self.avoidance_direction = 0
+                self.no_turn()
 
         # Behaviour according to state of the fly
 
@@ -379,7 +385,7 @@ class Controller:
 
         elif self.general_state == "RUNNING" :
             # running away from dragonfly
-            self.speed = SUSPICIOUS * 1.5
+            self.speed = SUSPICIOUS * 2
             self.k = 1
             if self.avoidance_direction == -1:  
                 action_drives = np.array([0.2, 2.0])
@@ -392,20 +398,17 @@ class Controller:
         elif self.general_state == "AVOIDING" :
             self.k = 1
             if self.avoidance_direction == -1:
-                #self.turn_left()
-                action_drives = np.array([0.1, 2.5])  
+                action_drives = np.array([0.1, 4])  
 
-            #elif self.avoidance_direction == 1:
             else :
-               # self.turn_right()  
-                action_drives = np.array([2.5, 0.1]) 
+                action_drives = np.array([4, 0.1]) 
 
             #action_drives = np.array([0.1, 2.5])
 
             self.speed = SUSPICIOUS*1
 
         elif self.general_state == "TRACKING" :
-            self.speed = SUSPICIOUS * 3
+            self.speed = SUSPICIOUS 
             self.k = 1
             action_drives = self.odor_drives * 3
 
@@ -416,26 +419,28 @@ class Controller:
 
         elif self.general_state in ("SIDE WIND"):
             # go straight and let physics stabilize — no zigzag
-            self.speed = SUSPICIOUS * 1.5
+            self.speed = SUSPICIOUS * 0.7
             self.k = 1
             action_drives = np.array([1.0, 1.0])
 
         else:  # SEARCHING
-            self.speed = SUSPICIOUS * 0.7  # slow down to cast around
+            self.speed = SUSPICIOUS * 0.7
             self.k = 1
-            
             if self.odor_state == "STILL_HOPE":
-                action_drives = self.last_odor_drives 
-            else : 
-                self.k = TURN_COEFF * 1.5
-                action_drives = np.array([2.0, -1.0])
+                # keep heading toward last known good direction
+                action_drives = self.last_odor_drives
+            else:
+                if (self.count // 500) % 2 == 0:
+                    action_drives = np.array([1.6, 0.4])
+                else:
+                    action_drives = np.array([0.4, 1.6])
         
         
         # slow down situations to avoid getting flipped, no matter the state
         
         if self.current_slope_category == "carreful_upsidedown": # FAIRE AUTRES ROTATIONS
-            self.speed = self.speed * 0.6  # almost stop, let physics stabilize
-            if not(self.general_state == "FLIPPED") : self.general_state = "SLOPE"
+            self.speed = self.speed * 0.8  # almost stop, let physics stabilize
+            if not(self.general_state == "FLIPPED") and (not(self.wind_state == "NO WIND")or not(self.wind_state == "NONE") ) : self.general_state = "SLOPE"
         
         if self.wind_state == "SIDE":
             self.speed = self.speed* 0.7 # quand à 0.1 elle se fait moins boloss par le vent
@@ -443,13 +448,13 @@ class Controller:
             self.general_state = "SIDE WIND"
         
 
-        # # hilltop: brief caution when pitch transitions ascending → flat/descending
-        # if self.hilltop_timer > 0 and self.general_state not in ("RUNNING", "FLIPPED"):
-        #     self.speed = self.speed * 0.7
-        #     self.hilltop_timer -= 1
+        # hilltop: brief caution when pitch transitions ascending → flat/descending
+        if self.hilltop_timer > 0 and self.general_state not in ("RUNNING", "FLIPPED"):
+            self.speed = self.speed * 0.7
+            self.hilltop_timer -= 1
 
         if self.current_slope_category == "carreful_upsidedown" and self.wind_state == "SIDE" and self.general_state != "RUNNING":
-            self.speed = self.speed* 0
+            self.speed = self.speed* 0.2
             self.general_state = "SIDE WIND"
             
     
@@ -547,10 +552,6 @@ class Controller:
                 self.consecutive_detections = 0
         else : 
             self.avoiding_obstacle = False
-<<<<<<< HEAD
-=======
-
->>>>>>> origin/estelle_branch
 
                     
         # if len(self.trajectory) > 0:
@@ -580,27 +581,30 @@ class Controller:
         """
         regions = np.zeros(NB_OF_RECT)
 
-        for i in range(len(self.last_vertical_segments)): # contains (x, y_top, y_bottom)
+        # Method 1: height-based (works for solid obstacles)
+        for i in range(len(self.last_vertical_segments)):
             x = self.last_vertical_segments[i][0]
-            height = self.last_vertical_segments[i][2]-self.last_vertical_segments[i][1]
-
+            height = self.last_vertical_segments[i][2] - self.last_vertical_segments[i][1]
             if self.is_left(x):
-                if self.is_end_of_roi(x):
-                    regions[0] += height
-                else:
-                    regions[1] += height
+                regions[0 if self.is_end_of_roi(x) else 1] += height
             else:
-                if self.is_end_of_roi(x):
-                    regions[3] += height
-                else:
-                    regions[2] += height
+                regions[3 if self.is_end_of_roi(x) else 2] += height
+
+        # Method 2: direct edge-based (catches grass blades filtered by in_the_grass)
+        # Each edge pair in the obstacle zone adds a fixed danger score
+        for roi in self.all_rois_obst:
+            edges = roi.edge_indices
+            for j in range(0, len(edges) - 1, 2):
+                x = (edges[j] + edges[j + 1]) / 2 + roi.x0
+                if X_LEFT <= x <= X_RIGHT:
+                    if self.is_left(x):
+                        regions[0 if self.is_end_of_roi(x) else 1] += 20
+                    else:
+                        regions[3 if self.is_end_of_roi(x) else 2] += 20
 
         idx_max = np.argmax(regions)
         for i in range(NB_OF_RECT):
-            if i == idx_max:
-                self.all_rectangles[i].color = COLOR_RED
-            else:
-                self.all_rectangles[i].color = COLOR_BLACK
+            self.all_rectangles[i].color = COLOR_RED if i == idx_max else COLOR_BLACK
         return regions
 
     def turn_right(self): self.k = TURN_COEFF
@@ -1127,10 +1131,20 @@ class Controller:
             min_dist_left = float('inf')
             min_dist_right = float('inf')
 
-            for start, end in roi.inner_segments: # an inner segment is just 2 x-coordinates
-                segment_mid_x = (start + end) / 2
+            candidates = []
+            for start, end in roi.inner_segments:
+                candidates.append((start + end) / 2)
+
+            # fallback: if no inner segments (e.g. grass blades filtered by in_the_grass),
+            # use midpoints of consecutive edge pairs as candidate obstacle positions
+            if not candidates:
+                edges = roi.edge_indices
+                for i in range(0, len(edges) - 1, 2):
+                    mid = (edges[i] + edges[i + 1]) / 2 + roi.x0
+                    candidates.append(mid)
+
+            for segment_mid_x in candidates:
                 distance = abs(segment_mid_x - center_vision_x)
-                
                 if self.is_left(segment_mid_x):
                     if distance < min_dist_left:
                         min_dist_left = distance
@@ -1139,10 +1153,10 @@ class Controller:
                     if distance < min_dist_right:
                         min_dist_right = distance
                         best_right = (segment_mid_x, roi.y)
-            
+
             if best_left: points.append(best_left)
             if best_right: points.append(best_right)
-            
+
         return points
 
     def is_left(self, x): 
