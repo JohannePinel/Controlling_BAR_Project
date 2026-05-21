@@ -119,10 +119,12 @@ class Controller:
         
         # ========Proprioception paramters========
         self.current_slope_category = "flat"
+        self.prev_slope_category = "flat"
+        self.hilltop_timer = 0
         self.pitch = 0
         self.pitch_derivative = 0
         self.pitch_count = 1
-        self.pitch_collection_window = 4 
+        self.pitch_collection_window = 4
         self.pitch_weight = pitch_weight
         self.th_danger_upsidedown = 0.3
         self.th_danger_roll = 0.5
@@ -392,7 +394,7 @@ class Controller:
 
         elif self.general_state == "RUNNING" :
             # run away: turn opposite to the dragonfly's side
-            self.speed = SUSPICIOUS * 3
+            self.speed = SUSPICIOUS * 3.5
             self.k = 1
             if self.avoidance_direction == -1:   # dragonfly on right → turn left
                 action_drives = np.array([0.2, 2.0])
@@ -458,17 +460,16 @@ class Controller:
         
         
         if self.current_slope_category == "carreful_upsidedown" and self.general_state not in ("RUNNING", "FLIPPED"):
-            self.speed = self.speed * 0.6  # almost stop, let physics stabilize
+            self.speed = self.speed * 0.6  # slow way down, let physics stabilize
             self.general_state = "SLOPE"
-        """
-        if self.wind_state == "SIDE":
-            self.speed = self.speed* 0.7 # quand à 0.1 elle se fait moins boloss par le vent
-            #print('stopped because Im scared to fall')
-            self.general_state = "SIDE WIND"
-        """
+
+        # hilltop: slow down during the transition window even though pitch ≈ 0
+        if self.hilltop_timer > 0 and self.general_state not in ("RUNNING", "FLIPPED"):
+            self.speed = self.speed * 0.3
+            self.hilltop_timer -= 1
 
         if self.current_slope_category == "carreful_upsidedown" and self.wind_state == "SIDE" and self.general_state != "RUNNING":
-            self.speed = self.speed* 0 # quand à 0.1 elle se fait moins boloss par le vent
+            self.speed = self.speed* 0
             self.general_state = "SIDE WIND"
     
 
@@ -1036,6 +1037,7 @@ class Controller:
         roll = euler_angles[0]
         
         # Some subjective qualifications
+        self.prev_slope_category = self.current_slope_category
         if np.abs(pitch) > self.th_danger_upsidedown or np.abs(roll) > self.th_danger_roll :
             self.current_slope_category = "carreful_upsidedown"
         else:
@@ -1045,6 +1047,10 @@ class Controller:
                 self.current_slope_category  = "descending"
             else:
                 self.current_slope_category = "flat"
+
+            # detect hilltop: was ascending, now flat or descending
+            if self.prev_slope_category == "ascending" and self.current_slope_category in ("flat", "descending"):
+                self.hilltop_timer = 6  # ~300 steps of caution (6 * PITCH_DETECTION_RATE)
 
             self.prev_pitch = self.pitch
             self.pitch = pitch
