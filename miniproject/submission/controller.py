@@ -283,7 +283,8 @@ class Controller:
         flag = True if self.mode == "tuning ROI" or self.mode == "tuning slope" else False
         if self.frames: # because is empty at the first steps
             self.show_ROI_obst(self.frames[-1], show_lines = flag)
-            self.show_ROI_drag(self.frames[-1], show_lines = flag)
+            if self.mode == "tuning dragonfly":
+                self.show_ROI_drag(self.frames[-1], show_lines = False)
 
 
         # ======== Wind analysis ========
@@ -458,10 +459,7 @@ class Controller:
 
 
         # ======== Instructions to body =======
-
-        #drives = self.speed * self.odor_drives * np.array([self.k, 1/self.k])
         drives = self.speed * action_drives * np.array([self.k, 1/self.k])
-
 
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
@@ -479,9 +477,8 @@ class Controller:
         Analyse les positions de la libellule et décide si la mouche doit virer à gauche ou à droite pour l'éviter.
         """
 
-        regions = self.where_is_dragonfly()
-        regions_new = self.where_is_dragonfly_new()
-        self.test_where_is_dragonfly_new(regions_new)
+        regions = self.where_is_dragonfly_new() #self.where_is_dragonfly()
+        self.test_where_is_dragonfly_new(regions)
         
         """if np.mean(regions) > 0.25 or np.mean(regions) == 0: # if the dragonfly is detected in multiple regions, we are not sure about where it is and we do not want to take the risk to turn in the wrong direction
             self.avoiding_dragonfly = False
@@ -974,6 +971,8 @@ class Controller:
         self.dragonfly_seen = False  # Reset state at start of check
         bin_width = 900 // NB_OF_RECT
 
+        self.dragonfly_seen = False
+
         for roi in self.all_rois_drag:
             if roi.is_active:
                 for x in roi.edge_indices:
@@ -985,13 +984,11 @@ class Controller:
         return regions
     
     def test_where_is_dragonfly_new(self, regions):
-        if not np.any(regions > 0): # Do nothing if no dragonfly detected
-            return
-            
-        idx_max = np.argmax(regions)
-        bin_width = 900 // NB_OF_RECT
-        im = self.frames_test[-1]
-        im[300:310, idx_max * bin_width : (idx_max + 1) * bin_width] = COLOR_RED
+        if self.dragonfly_seen == True: # Do nothing if no dragonfly detected
+            idx_max = np.argmax(regions)
+            bin_width = 900 // NB_OF_RECT
+            im = self.frames_test[-1]
+            im[300:310, idx_max * bin_width : (idx_max + 1) * bin_width] = COLOR_RED
 
 #########################################################################################################
 ####################### FUNCTIONS THAT HELP THE TESTS BETWEEN DIFFERENT INTENSITIES #####################
