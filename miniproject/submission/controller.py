@@ -372,9 +372,6 @@ class Controller:
         if self.escape_timer == 0:
             self.stuck = False
 
-        # if self.escape_timer < 30 and self.avoiding_obstacle == False :
-        #     self.stuck = False
-
         if self.avoidance_dragonfly_timer > 0:
             self.avoidance_dragonfly_timer -= 1
 
@@ -382,7 +379,6 @@ class Controller:
             self.avoiding_dragonfly = False
             self.avoidance_direction = 0
             self.no_turn()
-
 
         # Behaviour according to state of the fly
 
@@ -393,12 +389,11 @@ class Controller:
             action_drives = np.array([2.0, 0.0])
 
         elif self.general_state == "RUNNING" :
-            # run away: turn opposite to the dragonfly's side
             self.speed = SUSPICIOUS * 3.5
             self.k = 1
-            if self.avoidance_direction == -1:   # dragonfly on right → turn left
+            if self.avoidance_direction == -1:  
                 action_drives = np.array([0.2, 2.0])
-            elif self.avoidance_direction == 1:  # dragonfly on left → turn right
+            elif self.avoidance_direction == 1: 
                 action_drives = np.array([2.0, 0.2])
             else:
                 action_drives = np.array([1.0, 1.0])
@@ -421,7 +416,6 @@ class Controller:
                 #self.turn_left()
                 action_drives = np.array([0.1, 2.5])  
 
-            #elif self.avoidance_direction == 1:
             else :
                # self.turn_right()  
                 action_drives = np.array([2.5, 0.1]) 
@@ -436,37 +430,35 @@ class Controller:
             action_drives = self.odor_drives * 3
 
         elif self.general_state == "BLIND FOLLOWING" :
-            self.speed = SUSPICIOUS 
+            self.speed = SUSPICIOUS
             self.k = 1
-            action_drives = self.last_odor_drives # follow last known good direction 
+            action_drives = self.last_odor_drives # follow last known good direction
+
+        elif self.general_state in ("SIDE WIND"):
+            # go straight and let physics stabilize — no zigzag
+            self.speed = SUSPICIOUS * 1.5
+            self.k = 1
+            action_drives = np.array([1.0, 1.0])
 
         else:  # SEARCHING
             self.speed = SUSPICIOUS * 0.5  # slow down to cast around
             self.k = 1
             
             if self.odor_state == "STILL_HOPE":
-                action_drives = self.last_odor_drives # follow last known good direction 
-                #self.general_state = "BLIND FOLLOWING"            
+                action_drives = self.last_odor_drives 
             else : 
                 self.k = TURN_COEFF * 1.5
                 action_drives = np.array([2.0, -1.0])
 
-            """
-            self.odor_drives = np.array([1.5, 0.5])  # lean right
-            action_drives = 0.5*self.odor_drives 
-            """
-                        # slow down situations to avoid getting flipped, no matter the state
-  
-        
         
         if self.current_slope_category == "carreful_upsidedown" and self.general_state not in ("RUNNING", "FLIPPED"):
-            self.speed = self.speed * 0.6  # slow way down, let physics stabilize
+            self.speed = self.speed * 0.6  
             self.general_state = "SLOPE"
 
-        # hilltop: slow down during the transition window even though pitch ≈ 0
-        if self.hilltop_timer > 0 and self.general_state not in ("RUNNING", "FLIPPED"):
-            self.speed = self.speed * 0.3
-            self.hilltop_timer -= 1
+        # # hilltop: brief caution when pitch transitions ascending → flat/descending
+        # if self.hilltop_timer > 0 and self.general_state not in ("RUNNING", "FLIPPED"):
+        #     self.speed = self.speed * 0.7
+        #     self.hilltop_timer -= 1
 
         if self.current_slope_category == "carreful_upsidedown" and self.wind_state == "SIDE" and self.general_state != "RUNNING":
             self.speed = self.speed* 0
