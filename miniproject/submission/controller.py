@@ -6,6 +6,7 @@ from scipy.spatial.transform import Rotation
 from flygym.examples.locomotion import TurningController
 import matplotlib.pyplot as plt
 
+from flygym.compose import ActuatorType # pour se relever
 
 
 RED = 0
@@ -125,7 +126,7 @@ class Controller:
         self.pitch_collection_window = 4 
         self.pitch_weight = pitch_weight
         self.th_danger_upsidedown = 0.3
-        self.th_danger_roll = 0.5
+        self.th_danger_roll = 0.4
         self.th_slope_category = 0.08
         self.maybe_flipped = 0
         self.prev_pitch = 5 # if it was 0, the first computation of the pitch_derivative is too high and 
@@ -194,6 +195,11 @@ class Controller:
         self.odor_memory_fast = 0.0        # drives turn decisions
         self.alpha_fast = 2/(8+1)   # ~0.22
         self.upside_down = False 
+
+        # ======== back up  ========
+        self.recovery_pose = get_recovery_pose(sim)
+        self.recovery_timer = 0
+        self.RECOVERY_DURATION = 10000  # steps to hold the pose
 
         # ======== plots and display ========
         self.trajectory_states = []
@@ -382,9 +388,71 @@ class Controller:
 
         if self.general_state == "FLIPPED" :
             # tries to get back up
-            self.speed = SUSPICIOUS * 2
-            self.k = TURN_COEFF * 2
+            """
+            self.speed = SUSPICIOUS * 10
+            self.k = TURN_COEFF * 4
             action_drives = np.array([2.0, 0.0])
+            """
+
+            self.recovery_timer += 1
+    
+            recovery_angles, adhesion = self.turning_controller.step(np.ones(2))
+
+            # coxa pitch indices in the 42-actuator space (index 1 of each 7-actuator leg group)
+            coxa_pitch = [0, 7, 14]   # lf, lm, lh, rf, rm, rh
+            coxa_roll  = [21, 28, 35]   # lf, lm, lh, rf, rm, rh
+            thibia1 = [41,34,27]
+            thibia2 = [20,13,6]
+            trochant = [5,12,19]
+            coxa_jsp = [3,10,17]
+            thorax_last1 = [2,9,16]
+            thorax_last2 = [23,30,37]
+            
+            for idx in coxa_pitch:
+                recovery_angles[idx] = 1.5   # push legs down
+            for idx in coxa_roll:
+                recovery_angles[idx] = -1.5   # splay out to sides
+            for idx in thibia1:
+                recovery_angles[idx] = 1.5
+            for idx in thibia2:
+                recovery_angles[idx] = -1.5
+            for idx in trochant:
+                recovery_angles[idx] = -3
+            for idx in coxa_jsp:
+                recovery_angles[idx] = -1.5
+            for idx in thorax_last1:
+                recovery_angles[idx] = 1
+            for idx in thorax_last2:
+                recovery_angles[idx] = -1
+
+            adhesion = np.ones(6)
+            
+            if self.recovery_timer > self.RECOVERY_DURATION:
+                for idx in coxa_pitch:
+                    recovery_angles[idx] = -1.5   # push legs down
+                for idx in coxa_roll:
+                    recovery_angles[idx] = 1.5   # splay out to sides
+                for idx in thibia1:
+                    recovery_angles[idx] = -1.5
+                for idx in thibia2:
+                    recovery_angles[idx] = 1.5
+                for idx in trochant:
+                    recovery_angles[idx] = -3
+                for idx in coxa_jsp:
+                    recovery_angles[idx] = 1.5
+                for idx in thorax_last1:
+                    recovery_angles[idx] = -1
+                for idx in thorax_last2:
+                    recovery_angles[idx] = 1
+
+            if self.recovery_timer > 2*self.RECOVERY_DURATION:
+                self.recovery_timer = 0
+            
+
+            
+            return recovery_angles, adhesion
+
+            
 
         elif self.general_state == "RUNNING" :
             # running away from dragonfly
@@ -422,7 +490,7 @@ class Controller:
         elif self.general_state == "TRACKING" :
             self.speed = SUSPICIOUS
             self.k = 1
-            action_drives = self.odor_drives * 2
+            action_drives = self.odor_drives * 3
 
         elif self.general_state == "BLIND FOLLOWING" :
             self.speed = SUSPICIOUS 
@@ -1036,7 +1104,7 @@ class Controller:
             self.prev_pitch = self.pitch
             self.pitch = pitch
         
-        if np.abs(roll) > 0.7 :
+        if np.abs(roll) > 1 :
             self.upside_down = True
             #print('Roll is : ', np.abs(roll))
         else : self.upside_down = False   
@@ -1069,7 +1137,11 @@ class Controller:
     
     def recover_fly(self, im):
         im[110:160, 110:160] = COLOR_BLACK # just ldisplays a small dark square 
+
+
         return 0
+    
+    
     
     def adapts_ROI_to_slope(self): 
         """
@@ -1360,3 +1432,17 @@ def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perce
 
         result.append(f)
     return result
+
+def get_recovery_pose(sim):
+        """Extract joint angles from the hardcoded XML state."""
+        from xml.etree import ElementTree
+        
+        state_xml_string = """<key
+        time="292.321"
+        qpos="0.905716 1.83221 -0.306543 0.800692 -0.372113 0.220653 -0.414411 -0.819373 0.589419 0.924012 -0.405302 0.847985 1.07727 0.453141 -0.00024583 -0.000116386 -4.87674e-05 -1.54622e-05 -0.819417 0.538755 1.798 -0.255152 0.321968 1.14696 -0.0890338 -0.000485634 -0.000199447 -8.00439e-05 -2.72254e-05 -0.841713 -0.480533 -0.0753583 -0.00258645 -0.107602 0.458475 -0.153889 0.000107987 4.59312e-05 2.01385e-05 7.10973e-06 0.551778 0.772655 0.914102 -2.02445 -0.201619 1.07807 0.27841 0.000569393 0.000262438 0.000118698 3.60009e-05 0.620937 0.781104 1.13183 -1.14647 0.504925 0.373207 -0.630372 0.000354268 0.000155122 6.83004e-05 2.53816e-05 0.611093 0.47804 1.26578 -1.13449 0.35121 0.417435 -0.720478 0.000313296 0.000145773 6.92623e-05 2.67613e-05"
+        />"""
+        
+        root = ElementTree.fromstring(state_xml_string)
+        # skip first 7 values (position + quaternion), take next 42 (joint angles)
+        all_angles = [float(v) for v in root.attrib["qpos"].split()[7:7+66]]
+        return np.array(all_angles)
