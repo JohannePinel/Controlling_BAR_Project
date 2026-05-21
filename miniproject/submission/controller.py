@@ -264,7 +264,6 @@ class Controller:
 
             if self.is_flipped(sim, im):
                 self.upside_down = True
-                self.recover_fly(im)
             else :
                 self.upside_down = False
     
@@ -1074,12 +1073,6 @@ class Controller:
                 else:   
                     self.maybe_flipped += 1
         return False
-    
-    def recover_fly(self, im):
-        im[110:160, 110:160] = COLOR_BLACK # just ldisplays a small dark square 
-
-
-        return 0
     
     
     
