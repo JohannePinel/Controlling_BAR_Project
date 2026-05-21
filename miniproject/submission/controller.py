@@ -6,7 +6,6 @@ from scipy.spatial.transform import Rotation
 from flygym.examples.locomotion import TurningController
 import matplotlib.pyplot as plt
 
-from flygym.compose import ActuatorType # pour se relever
 
 
 RED = 0
@@ -190,7 +189,7 @@ class Controller:
         self.last_odor_drives = np.ones(2)
         self.odor_state = "LOST"      # "FOUND", "LOST"
         self.prev_state = "LOST"
-        self.LOST_THRESHOLD = 12     # from paper, 25-38 steps
+        self.LOST_THRESHOLD = 50    # from paper, 25-38 steps
         #self.RECOVERING_THRESHOLD = 12 
         self.odor_memory_fast = 0.0        # drives turn decisions
         self.alpha_fast = 2/(8+1)   # ~0.22
@@ -239,23 +238,11 @@ class Controller:
         if steps_since_odor <= self.LOST_THRESHOLD: 
             self.odor_state = "FOUND"
         else: # we lost the smell for too long          
-            if self.wind_state != "SILENT": #wind is not forward, so the source is still where we smelled it last
-                #self.odor_drives = self.last_odor_drives
+            if self.wind_state != "SILENT" and self.odor_state == "FOUND" : #wind is not forward, so the source is still where we smelled it last
                 self.odor_state = "STILL_HOPE"
-                #self.general_state = "BLIND FOLLOWING"
             else : 
-                #self.odor_drives = np.array([1.5, 0.5])  # lean right
-                #self.odor_drives = 0.5*self.odor_drives 
                 self.odor_state = "LOST"
-                '''
-                if (self.count // 50000) % 2 == 0:
-                    self.odor_drives = np.array([1.5, 0.5])  # lean right
-                    print('leaning right because I am lost')
-                else:
-                    self.odor_drives = np.array([0.5, 1.5])  # lean left
-                    print('leaning left because I am lost')
-                '''
-            # even with forward wind we do not smell it, it is really lost, need to search again, we slow down to find it before moving again
+                # even with forward wind we do not smell it, it is really lost, need to search again, we slow down to find it before moving again
             
 
         if self.odor_state != self.prev_state: # change of state
@@ -348,10 +335,9 @@ class Controller:
         elif self.odor_state == "FOUND":
             self.general_state = "TRACKING"
 
-        elif self.general_state == "BLIND FOLLOWING" and self.odor_state == "FOUND" :# make CLEAN
+        elif self.odor_state == "STILL HOPE" :# make CLEAN
             self.general_state = "BLIND FOLLOWING"
         
-
         else:
             self.general_state = "SEARCHING"
 
@@ -370,6 +356,7 @@ class Controller:
         if self.escape_timer == 0:
             self.stuck = False
 
+        
         if self.avoidance_dragonfly_timer > 0:
             self.avoidance_dragonfly_timer -= 1
 
@@ -379,21 +366,26 @@ class Controller:
         # if self.escape_timer < 30 and self.avoiding_obstacle == False :
         #     self.stuck = False
 
+            self.avoidance_direction = 0
+            self.no_turn()
+
+
 
         # Behaviour according to state of the fly
 
         if self.general_state == "FLIPPED" :
             # tries to get back up
             
-            self.speed = SUSPICIOUS * 10
-            self.k = TURN_COEFF * 4
+            self.speed = SUSPICIOUS * 2
+            self.k = TURN_COEFF * 2
+
             action_drives = np.array([2.0, 0.0])
             
             
 
         elif self.general_state == "RUNNING" :
             # running away from dragonfly
-            self.speed = SUSPICIOUS * 3
+            self.speed = SUSPICIOUS * 1.5
             self.k = 1
             action_drives = np.array([1.0, 1.0])   
 
@@ -422,7 +414,7 @@ class Controller:
 
             #action_drives = np.array([0.1, 2.5])
 
-            self.speed = SUSPICIOUS*0.5
+            self.speed = SUSPICIOUS*1
 
         elif self.general_state == "TRACKING" :
             self.speed = SUSPICIOUS
@@ -435,7 +427,7 @@ class Controller:
             action_drives = self.last_odor_drives # follow last known good direction 
 
         else:  # SEARCHING
-            self.speed = SUSPICIOUS * 0.5  # slow down to cast around
+            self.speed = SUSPICIOUS * 0.7  # slow down to cast around
             self.k = 1
             
             if self.odor_state == "STILL_HOPE":
@@ -445,28 +437,25 @@ class Controller:
                 self.k = TURN_COEFF * 1.5
                 action_drives = np.array([2.0, -1.0])
 
-            """
-            self.odor_drives = np.array([1.5, 0.5])  # lean right
-            action_drives = 0.5*self.odor_drives 
-            """
-                        # slow down situations to avoid getting flipped, no matter the state
-  
         
+        
+        # slow down situations to avoid getting flipped, no matter the state
         
         if self.current_slope_category == "carreful_upsidedown": # FAIRE AUTRES ROTATIONS
             self.speed = self.speed * 0.6  # almost stop, let physics stabilize
             if not(self.general_state == "FLIPPED") : self.general_state = "SLOPE"
-        """
+        
         if self.wind_state == "SIDE":
             self.speed = self.speed* 0.7 # quand à 0.1 elle se fait moins boloss par le vent
             #print('stopped because Im scared to fall')
             self.general_state = "SIDE WIND"
-        """
+        
 
         if self.current_slope_category == "carreful_upsidedown" and self.wind_state == "SIDE":
             self.speed = self.speed* 0 # quand à 0.1 elle se fait moins boloss par le vent
             #print('stopped because Im scared to fall')
             self.general_state = "SIDE WIND"
+            
     
 
 
@@ -561,6 +550,8 @@ class Controller:
 
             else:
                 self.consecutive_detections = 0
+        else : 
+            self.avoiding_obstacle = False
 
 
                     
