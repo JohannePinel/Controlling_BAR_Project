@@ -26,7 +26,7 @@ Y_LOW = 350
 Y_LOW_DRAG = 450
 Y_HIGH = 250 
 Y_HIGH_DRAG = 150
-Y_ADITIONAL = 200 # In the color vision, the y axis point toward the bottom
+Y_ADITIONAL = 200 
 X_LEFT = 140
 X_LEFT_DRAG = 0
 X_RIGHT = 750
@@ -69,6 +69,7 @@ STATE_COLORS = {
     "AVOIDING": "orange",
     "RUNNING": "red",
     "FLIPPED": "purple",
+    "BLIND FOLLOWING": "cyan",
 }
 
 
@@ -111,7 +112,7 @@ class Controller:
         self.count = 0
         self.mode = mode
         self.draw_edges = True
-        self.general_state = "SEARCHING"
+        self.general_state = "SEARCHING" # can be  "TRACKING", "SEARCHING","AVOIDING","RUNNING","FLIPPED","BLIND FOLLOWING"
         self.prev_state_before_running = "SEARCHING"
         
         # ========Color vision parameters========
@@ -167,8 +168,8 @@ class Controller:
         self.avoiding_dragonfly = False
         self.avoidance_timer = 0
         self.avoidance_dragonfly_timer = 0
-        self.avoidance_direction = 0            # -1 = gauche, 1 = droite, 0 = pas d'évitement
-        self.danger_zone_index = -1             # Index de la zone dangereuse (0-3)
+        self.avoidance_direction = 0            # -1 = left, 1 = right, 0 = no avoidance
+        self.danger_zone_index = -1             # Index of dangerous zone (0-3)
         self.escape_timer = 0
         self.stuck = False
         self.consecutive_detections = 0
@@ -178,9 +179,9 @@ class Controller:
         # ======== walking inhibition ========
         self.k = 1
         self.turn_timer = 0
-        self.turning = False                    # est-ce qu'on est en train de virer ?
-        self.trajectory = []                    # Liste de (x, y) positions de la mouche
-        self.obstacle_detection_points = []     # Liste de (x, y) où un obstacle a été détecté
+        self.turning = False                    # are we turning ?
+        self.trajectory = []                    # List of (x, y) positions of the fly
+        self.obstacle_detection_points = []     # List of (x, y) where an obstacle was detected
         self.obs = False
         self.odor_drives = np.ones(2)
 
@@ -191,18 +192,16 @@ class Controller:
         self.last_odor_drives = np.ones(2)
         self.odor_state = "LOST"      # "FOUND", "LOST"
         self.prev_state = "LOST"
-        self.LOST_THRESHOLD = 250   # ~2.5 olfaction cycles grace period before going LOST
-        #self.RECOVERING_THRESHOLD = 12 
-        self.odor_memory_fast = 0.0        # drives turn decisions
+        self.LOST_THRESHOLD = 250   
         self.alpha_fast = 2/(8+1)   # ~0.22
         self.upside_down = False 
 
 
         # ======== plots and display ========
         self.trajectory_states = []
-        self.trajectory_states = []
-        self.trajectory_wind_perceived = []  # what the fly thinks
-        self.last_predicted_wind = 0 
+        self.trajectory_wind_perceived = []  # where the fly thinks the wind is
+        self.last_predicted_wind = [0]
+        self.trajectory_heading = []
         
 ###################################################################################
 ################################# STEP FUNCTION ###################################
@@ -211,28 +210,26 @@ class Controller:
         self.count += 1
 
         # ======== Tracking position ========
-        fly_pos = sim.get_body_positions(sim.fly.name)[0]   # Position du thorax
-        self.trajectory.append((fly_pos[0], fly_pos[1]))    # Enregistrer (x, y)
+        fly_pos = sim.get_body_positions(sim.fly.name)[0]   # Position of the thorax
+        self.trajectory.append((fly_pos[0], fly_pos[1]))    # Store (x, y)
         self.trajectory_states.append(self.general_state)
         # ======== Odor detection ========
         if self.count % OLFACTION_RATE == 2:
             olfaction = sim.get_olfaction(sim.fly.name)
-            #print(f"olfaction shape: {olfaction.shape}, values: {olfaction}")
             if self.odor_smooth is None:
                 self.odor_smooth = olfaction
             else:
                 self.odor_smooth = (1 - self.alpha) * self.odor_smooth + self.alpha * olfaction
             
-            self.odor_drives = odor_to_drives(self.odor_smooth) * 3 #fois x to increase the effect of the odor on the speed, otherwise the fly is too much focused on the obstacle avoidance and doesn't move enough towards the target
+            self.odor_drives = odor_to_drives(self.odor_smooth) * 3 
+                #time x to increase the effect of the odor on the speed, otherwise the fly is too much focused on the obstacle 
+                # avoidance and doesn't move enough towards the target
 
-        # tracking when odor was last smelled 
         mean_odor = np.max(self.odor_smooth) if self.odor_smooth is not None else 0.0
-        #print("mean odor is " , mean_odor)
         
-        if mean_odor > ODOR_DETECTION_THRESHOLD: # we smell the source
+        if mean_odor > ODOR_DETECTION_THRESHOLD: # we still smell the source
             self.t_last_odor = self.count
-            #if self.count < 3 : print("found immediatly")
-            self.last_odor_drives = self.odor_drives # will be the our aim if we lose the smell next step
+            self.last_odor_drives = self.odor_drives # will be our aim if we lose the smell next step
         
         
         steps_since_odor = self.count - self.t_last_odor # how long it's been since we lost the smell
@@ -243,11 +240,9 @@ class Controller:
                 self.odor_state = "STILL_HOPE"
             else : 
                 self.odor_state = "LOST"
-                # even with forward wind we do not smell it, it is really lost, need to search again, we slow down to find it before moving again
+                # even with forward wind we do not smell it, it is really lost, need to search again
             
-
         if self.odor_state != self.prev_state: # change of state
-            print(f"Step {self.count}: odor state -> {self.odor_state} (mean={mean_odor:.2e})")
             self.prev_state = self.odor_state
 
         # ======== Slope detection ========
@@ -262,21 +257,18 @@ class Controller:
             im = self.color_vision(sim)
             self.adapts_ROI_to_slope() 
 
-            if self.is_flipped(sim, im):
+            if self.is_flipped(im):
                 self.upside_down = True
             else :
                 self.upside_down = False
-    
 
-
-        # ======== Obstacle / Dragonfly detection ========
-            
+            # ======== Obstacle / Dragonfly detection ========            
             self.detect_line_jump(sim) # calls detection of both obstacles and dragonfly
             self.decide_avoidance_strategy()
             self.dragonfly_avoidance_strategy()
             self.show_rectangles(im)
 
-       
+
         # ======== Visualization ========
         flag = True if self.mode == "tuning ROI" or self.mode == "tuning slope" else False
         if self.frames: # because is empty at the first steps
@@ -288,8 +280,7 @@ class Controller:
         self.step_count += 1
         if self.step_count % 5000 == 0 and self.step_count > 0:
             # get current antenna data
-            antenna_data = sim.get_antenna_data(sim.fly.name)
-            
+            antenna_data = sim.get_antenna_data(sim.fly.name)            
             quat_l = antenna_data['l']['qpos']
             quat_r = antenna_data['r']['qpos']
             
@@ -302,17 +293,14 @@ class Controller:
             
             predicted_direction = wind_analysis(self, sim, pitch_diff, roll_diff, yaw_diff)
             self.last_predicted_wind = predicted_direction  # store latest angle
-            print(f"Step {self.step_count}: predicted wind direction = {predicted_direction}°, so {self.wind_state}")
-            print(f"Step {self.step_count}: current state = {self.general_state}")
-            """
-            if self.step_count % 1000 == 0:
-                # ... existing antenna code ...
-                #predicted_direction = wind_analysis(self, pitch_diff, roll_diff, yaw_diff)
-                self.last_predicted_wind = predicted_direction  # store latest angle
-                print(f"Step {self.step_count}: wind={self.wind_state}")
-            """
-        # every step, append current best known angle
+
+        # append current best known angle
         self.trajectory_wind_perceived.append(self.last_predicted_wind)
+        body_rotations = sim.get_body_rotations(sim.fly.name)
+        thorax_quat = body_rotations[0][[1, 2, 3, 0]]
+        rotation = Rotation.from_quat(thorax_quat)
+        euler = rotation.as_euler('xyz', degrees=True)
+        self.trajectory_heading.append(euler[2])  # yaw = heading in world frame
 
 
         # ======== Finite State Machine ========
@@ -324,12 +312,10 @@ class Controller:
         elif self.dragonfly_seen:
             self.prev_state_before_running = self.general_state  # remember what we were doing
             self.general_state = "RUNNING"
-
-            
+           
         # Priority n°2: obstacle
         elif self.avoiding_obstacle:
             self.general_state = "AVOIDING"
-
 
         # Priority n°3: smell tracking
         elif self.odor_state == "FOUND":
@@ -337,12 +323,6 @@ class Controller:
 
         elif self.odor_state == "STILL_HOPE":
             self.general_state = "BLIND FOLLOWING"
-
-        # # after escaping dragonfly, head back toward last known odor direction
-        # elif self.prev_state_before_running in ("TRACKING", "BLIND FOLLOWING") and \
-        #     not np.array_equal(self.last_odor_drives, np.ones(2)):
-        #     self.general_state = "BLIND FOLLOWING"
-        #     self.prev_state_before_running = "SEARCHING"  
 
         else:
             self.general_state = "SEARCHING"
@@ -361,7 +341,6 @@ class Controller:
 
         if self.escape_timer == 0:
             self.stuck = False
-
         
         if self.avoidance_dragonfly_timer > 0:
             self.avoidance_dragonfly_timer -= 1
@@ -370,18 +349,15 @@ class Controller:
                 self.avoidance_direction = 0
                 self.no_turn()
 
-        # Behaviour according to state of the fly
 
+
+        # Behaviour according to state of the fly
         if self.general_state == "FLIPPED" :
             # tries to get back up
-            
             self.speed = SUSPICIOUS * 2
             self.k = TURN_COEFF * 2
-
             action_drives = np.array([2.0, 0.0])
             
-            
-
         elif self.general_state == "RUNNING" :
             # running away from dragonfly
             self.speed = SUSPICIOUS * 2
@@ -393,18 +369,14 @@ class Controller:
             else:
                 action_drives = np.array([1.0, 1.0])
 
-
         elif self.general_state == "AVOIDING" :
             self.k = 1
             if self.avoidance_direction == -1:
                 action_drives = np.array([0.1, 4])  
-
             else :
                 action_drives = np.array([4, 0.1]) 
 
-            #action_drives = np.array([0.1, 2.5])
-
-            self.speed = SUSPICIOUS*1
+            self.speed = SUSPICIOUS
 
         elif self.general_state == "TRACKING" :
             self.speed = SUSPICIOUS 
@@ -415,12 +387,6 @@ class Controller:
             self.speed = SUSPICIOUS
             self.k = 1
             action_drives = self.last_odor_drives # follow last known good direction
-
-        elif self.general_state in ("SIDE WIND"):
-            # go straight and let physics stabilize — no zigzag
-            self.speed = SUSPICIOUS * 0.7
-            self.k = 1
-            action_drives = np.array([1.0, 1.0])
 
         else:  # SEARCHING
             self.speed = SUSPICIOUS * 0.7
@@ -437,24 +403,19 @@ class Controller:
         
         # slow down situations to avoid getting flipped, no matter the state
         
-        if self.current_slope_category == "carreful_upsidedown": # FAIRE AUTRES ROTATIONS
-            self.speed = self.speed * 0.8  # almost stop, let physics stabilize
-            if not(self.general_state == "FLIPPED") and (not(self.wind_state == "NO WIND")or not(self.wind_state == "NONE") ) : self.general_state = "SLOPE"
-        
+        if self.current_slope_category == "carreful_upsidedown": 
+            self.speed = self.speed * 0.8  # walk slighlty slower in slopes
+           
         if self.wind_state == "SIDE":
-            self.speed = self.speed* 0.7 # quand à 0.1 elle se fait moins boloss par le vent
-            #print('stopped because Im scared to fall')
-            self.general_state = "SIDE WIND"
-        
+            self.speed = self.speed* 0.7 # walk slighlty slower when there is wind on the side 
 
-        # hilltop: brief caution when pitch transitions ascending → flat/descending
-        if self.hilltop_timer > 0 and self.general_state not in ("RUNNING", "FLIPPED"):
+        if self.hilltop_timer > 0 and self.general_state not in ("RUNNING", "FLIPPED"): # hilltop: brief caution when pitch transitions ascending → flat/descending
             self.speed = self.speed * 0.7
             self.hilltop_timer -= 1
 
-        if self.current_slope_category == "carreful_upsidedown" and self.wind_state == "SIDE" and self.general_state != "RUNNING":
-            self.speed = self.speed* 0.2
-            self.general_state = "SIDE WIND"
+        if self.current_slope_category == "carreful_upsidedown" and self.wind_state == "SIDE" and self.general_state != "RUNNING":  
+            self.speed = self.speed* 0.2 # very likely to fall, we slow down a lot
+
             
     
 
@@ -462,10 +423,7 @@ class Controller:
 
         # ======== Instructions to body =======
 
-        #drives = self.speed * self.odor_drives * np.array([self.k, 1/self.k])
         drives = self.speed * action_drives * np.array([self.k, 1/self.k])
-
-
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
     
@@ -479,7 +437,7 @@ class Controller:
     def dragonfly_avoidance_strategy(self):
 
         """
-        Analyse les positions de la libellule et décide si la mouche doit virer à gauche ou à droite pour l'éviter.
+        Analyses positions of the dragonfly and decides if the fly should turn left or right to escape it
         """
 
         regions = self.where_is_dragonfly()
@@ -489,9 +447,9 @@ class Controller:
             return
         idx_max = np.argmax(regions)
         
-        if idx_max == 0 or idx_max == 1:  # Dragonfly à gauche
+        if idx_max == 0 or idx_max == 1:  # Dragonfly on the left
             self.avoidance_direction = 1
-        elif idx_max == 2 or idx_max == 3: # Dragonfly à droite
+        elif idx_max == 2 or idx_max == 3: # Dragonfly on the right
             self.avoidance_direction = -1
 
         self.avoiding_dragonfly = True
@@ -500,12 +458,11 @@ class Controller:
  
     def decide_avoidance_strategy(self):
         """
-        Analyse les obstacles détectés et décide si la mouche doit virer à gauche ou à droite.
+        Analyses detected obstacles and decides if the fly should turn left or right
         """
         if self.avoiding_obstacle:
             return
-        
-        
+               
         regions = np.zeros(NB_OF_RECT)
         regions = self.comparison_obstacles()
         
@@ -516,13 +473,13 @@ class Controller:
             idx_max = np.argmax(regions)
             self.danger_zone_index = idx_max
             
-            if idx_max == 0 or idx_max == 1:  # Obstacle à gauche
-
+            if idx_max == 0 or idx_max == 1:  # Obstacle on the left
                 self.avoidance_direction = 1
                 if idx_max == 1: 
-                    self.speed = SUSPICIOUS * 0.5    # plus l'obstacle est proche du centre, plus la mouche ralentit pour éviter
+                    self.speed = SUSPICIOUS * 0.5    
+                    # the more the obstacle is close to the center, the more the fly slows down to avoid it
             
-            else: # Obstacle à droite
+            else: # Obstacle on the right
                 self.avoidance_direction = -1
                 if idx_max == 2: 
                     self.speed = SUSPICIOUS * 0.5
@@ -541,28 +498,17 @@ class Controller:
                 if self.consecutive_detections >= 3:
                         self.stuck = True
                         self.escape_timer = ESCAPE_DURATION
-                        # self.general_state = "ESCAPING"
-
-                        #print ('j\'ai capté les 3 d\'affilé')
-
                         self.consecutive_detections = 0
-
             else:
                 self.consecutive_detections = 0
         else : 
             self.avoiding_obstacle = False
 
-                    
-        # if len(self.trajectory) > 0:
-        #     current_pos = self.trajectory[-1]
-        #     self.obstacle_detection_points.append(current_pos)
-        #     self.obs = False
-
         if self.obs and len(self.trajectory) > 0:
             current_pos = self.trajectory[-1]
             self.obstacle_detection_points.append(current_pos)
 
-        self.obs = False  # Réinitialisation en fin de cycle
+        self.obs = False  # Reinitialisation at the end of the cycle
 
 
     def comparison_obstacles(self):
@@ -612,28 +558,27 @@ class Controller:
 
     def plot_trajectory(self, save_path="trajectory_plot.png"):
         """
-        Trace la trajectoire de la mouche en rouge et marque les points 
-        de détection d'obstacles en noir.
+        Draws the trajectory of the fly in red and shows points of obstacle detection in black
         """
         
         if len(self.trajectory) == 0:
-            print(" Aucune trajectoire à tracer")
+            print("No trajectory to trace")
             return
         
-        # Extraire x et y de la trajectoire
+        # Extract x and y of the trajectory
         x_coords = [pos[0] for pos in self.trajectory]
         y_coords = [pos[1] for pos in self.trajectory]
         
-        # Créer la figure
+        # Create the figure
         plt.figure(figsize=(12, 8))
         
-        # Tracer la trajectoire en rouge
+        # Trace the trajectory in red
         plt.plot(x_coords, y_coords, 'r-', linewidth=2, label='Trajectoire de la mouche', alpha=0.7)
         
-        # Marquer le point de départ en vert
+        # Start point in green
         plt.plot(x_coords[0], y_coords[0], 'go', markersize=12, label='Départ', zorder=5)
         
-        # Marquer le point d'arrivée en bleu
+        # Arrival point in blue
         plt.plot(x_coords[-1], y_coords[-1], 'bs', markersize=12, label='Arrivée', zorder=5)
         
         
@@ -644,7 +589,6 @@ class Controller:
         plt.grid(True, alpha=0.3)
         plt.axis('equal')
         
-        # Sauvegarder
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
         print(f"📊 Trajectoire sauvegardée : {save_path}")
         print(f"   - Points de trajectoire : {len(self.trajectory)}")
@@ -652,6 +596,41 @@ class Controller:
         plt.close()
     
         return save_path
+    
+
+    def plot_trajectory_with_states(self, save_path="trajectory_states.png"):
+        if len(self.trajectory) == 0:
+            print("No trajectory to plot")
+            return
+
+        x = [p[0] for p in self.trajectory]
+        y = [p[1] for p in self.trajectory]
+        states = self.trajectory_states 
+
+        fig, ax = plt.subplots(figsize=(12, 8))
+
+        # Plot trajectory colored by state
+        for i in range(len(x) - 1):
+            color = STATE_COLORS.get(states[i], "gray")
+            ax.plot(x[i:i+2], y[i:i+2], color=color, linewidth=2, alpha=0.7)
+
+        # Start and end markers
+        ax.plot(x[0], y[0], 'ko', markersize=10, label='Start')
+        ax.plot(x[-1], y[-1], 'k*', markersize=14, label='End')
+
+        # Legend
+        patches = [mpatches.Patch(color=c, label=s) for s, c in STATE_COLORS.items()]
+        ax.legend(handles=patches, loc='upper left')
+
+        ax.set_xlabel('X (mm)')
+        ax.set_ylabel('Y (mm)')
+        ax.set_title('Top-down trajectory (colored by state)')
+        ax.grid(True, alpha=0.3)
+        ax.axis('equal')
+
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
     
 
 
@@ -770,8 +749,7 @@ class Controller:
                 x_l = int(np.clip(x_l, 0, img_width - 1))
                 x_r = int(np.clip(x_r, 0, img_width - 1))
                 
-                # Ensure y_b and x_r won't cause index errors (they can be at most img_height-1 and img_width-1)
-                # since we use them as single indices (im[y_b, ...] and im[..., x_r])
+                # Ensure y_b and x_r won't cause index errors 
                 if y_b >= img_height:
                     y_b = img_height - 1
                 if x_r >= img_width:
@@ -792,14 +770,14 @@ class Controller:
 
     def detect_line_jump(self, sim: MiniprojectSimulation):
         """
-        Basically this function just calls more "technical" technical functions, for each ROIs.
+        Calls more "technical" technical functions, for each ROIs.
 
         Returns : for each ROI if it crosses an obstacle
         """
         im = self.frames[-1] 
         results = []
 
-        # Check which ROI crosses an obstacle. This check also activates other detection functions for each ROIs
+        # Check which ROI crosses an obstacle, and check activates other detection functions for each ROIs
         for roi in self.all_rois_obst: 
             detected = self.detect_line_jump_ROI(im, roi) # boolean wether there is an obstacle crossing it or not.
             results.append(detected)
@@ -808,14 +786,14 @@ class Controller:
         for roi in self.all_rois_drag:
             self.detect_line_jump_ROIdrag(im, roi)
 
-        # Compute the vertical segment (= the approx. height of an obstacle) out of each starting point
+        # Compute the vertical segment (= the approximative height of an obstacle) out of each starting point
         target_points = self.starting_point() # the center of each inner sgements
         self.last_vertical_segments = [] # all the heights
         for vx, vy_start in target_points:
             res = self.detect_vertical_obstacle_bounds(im, vx, vy_start)
             if res is not None:
                 self.last_vertical_segments.append(res)
-            # A vertical segment is basicall just (x-pos, y-top, y-bottom)
+            # A vertical segment is (x-pos, y-top, y-bottom)
 
         return tuple(results)
 
@@ -823,7 +801,7 @@ class Controller:
         """
         Detects multiple edges and evaluates every interval (including those at the start and end of 
         the scanline) for stability and intensity.
-        This allows edges to have inner obstacle parts on both left and right.
+        Allows edges to have inner obstacle parts on both left and right.
         """
         y, x0, x1 = int(roi.y), roi.x0, roi.x1
         green_line = im[y, x0:x1, GREEN].astype(int)
@@ -835,7 +813,7 @@ class Controller:
         if len(green_line) < 10:
             return False
 
-        # 1. Find all edge indices using the threshold (threshold = th_line)
+        # 1. Find all edge indices using the threshold th_line
         i = 0
         while i < len(green_line) - roi.diff_width:
             if self.different_intensities(green_line[i + roi.diff_width], green_line[i], self.th_line):
@@ -846,12 +824,12 @@ class Controller:
                     x0 + max(0, center - 5),
                     x0 + min(len(green_line), center + 5)
                 ))"""
-                i += (roi.diff_width*2) # Skip ahead to find the next discrete edge (not the same one)
+                i += (roi.diff_width*2) # Skip ahead to find the next discrete edge 
             else:
                 i += 1
 
         # 2. Analyze all intervals (start of line, edges, end of line) for 'inner' parts.
-        # Each edge boundary allows checking for an inner part to BOTH its left and right.
+        # Each edge boundary allows checking for an inner part to both its left and right.
         boundary_points = [0] + [idx + 2 for idx in roi.edge_indices] + [len(green_line)]
         
         for k in range(len(boundary_points) - 1):
@@ -970,8 +948,6 @@ class Controller:
         return regions
 
 
-    print('hihiiii')
-
 #########################################################################################################
 ####################### FUNCTIONS THAT HELP THE TESTS BETWEEN DIFFERENT INTENSITIES #####################
 #########################################################################################################
@@ -1021,10 +997,9 @@ class Controller:
         # Converts quaternion -> Euler angles
         rotation = Rotation.from_quat(thorax_quat)
         euler_angles = rotation.as_euler('xyz')  # [roll, pitch, yaw]
-        pitch = euler_angles[1]  # pitch ~[-0.5, 0.5]
+        pitch = euler_angles[1]  
         roll = euler_angles[0]
-        
-        # Some subjective qualifications
+
         self.prev_slope_category = self.current_slope_category
         if np.abs(pitch) > self.th_danger_upsidedown or np.abs(roll) > self.th_danger_roll :
             self.current_slope_category = "carreful_upsidedown"
@@ -1045,7 +1020,6 @@ class Controller:
         
         if np.abs(roll) > 1 :
             self.upside_down = True
-            #print('Roll is : ', np.abs(roll))
         else : self.upside_down = False   
            
         
@@ -1059,23 +1033,21 @@ class Controller:
         if self.pitch_count == window : self.pitch_count = 1
         return 0
     
-    def is_flipped(self, sim: MiniprojectSimulation, im):
+    def is_flipped(self, im):
         """
-        Returns : just a boolean wether the fly is flipped or not
+        Returns : a boolean wether the fly is flipped or not
         """
         for roi in self.all_rois_obst:
             blue_line = im[int(roi.y), roi.x0:roi.x1, BLUE].astype(int)
             if np.any(blue_line > 0):
                 if self.maybe_flipped >= FLIPPED_FOR_SURE:   
                     self.maybe_flipped = 0
-                    return True
-                
+                    return True           
                 else:   
                     self.maybe_flipped += 1
         return False
     
-    
-    
+
     def adapts_ROI_to_slope(self): 
         """
         If the ROIs were static in front of the fly's eyes, we would often look at grass or sky. So we adapt
@@ -1175,51 +1147,15 @@ class Controller:
         if r > 100 and g < 50 and b < 50:
             return True
         return False
-    ######################### 
-    #PLOTS
-    #########################
-    def plot_trajectory_with_states(self, save_path="trajectory_states.png"):
-        if len(self.trajectory) == 0:
-            print("No trajectory to plot")
-            return
-
-        x = [p[0] for p in self.trajectory]
-        y = [p[1] for p in self.trajectory]
-        states = self.trajectory_states  # we'll add this below
-
-        fig, ax = plt.subplots(figsize=(12, 8))
-
-        # Plot trajectory colored by state
-        for i in range(len(x) - 1):
-            color = STATE_COLORS.get(states[i], "gray")
-            ax.plot(x[i:i+2], y[i:i+2], color=color, linewidth=2, alpha=0.7)
-
-        # Start and end markers
-        ax.plot(x[0], y[0], 'ko', markersize=10, label='Start')
-        ax.plot(x[-1], y[-1], 'k*', markersize=14, label='End')
-
-        # Legend
-        patches = [mpatches.Patch(color=c, label=s) for s, c in STATE_COLORS.items()]
-        ax.legend(handles=patches, loc='upper left')
-
-        ax.set_xlabel('X (mm)')
-        ax.set_ylabel('Y (mm)')
-        ax.set_title('Top-down trajectory (colored by state)')
-        ax.grid(True, alpha=0.3)
-        ax.axis('equal')
-
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        plt.close()
-        print(f"Saved: {save_path}")
+   
 ##########################################################################################
 ############################## Odor processing functions #################################
 ##########################################################################################
 
-# Fonction odeur inspirée de la fontion du lab 4
+# Odor function inspired from lab4 function
 def odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80): 
     n_sources = odor_intensities.shape[1]
 
-    # Source attractive 
     attractive = np.average(
         odor_intensities[:, 0].reshape(2, 2), axis=0, weights=[9, 1]
     )
@@ -1254,14 +1190,14 @@ def odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80):
 def wind_analysis(self, sim, pitch_diff, roll_diff, yaw_diff) :
     wind_direction = 0
     if pitch_diff < -15 : 
-        wind_direction = 0
+        wind_direction = [0]
         self.wind_state = "INTERFERING" # the wind interfers with the smell if we are moving towards the source
     elif pitch_diff > -8 : 
-        wind_direction = 180
+        wind_direction = [180]
         self.wind_state = "SILENT" # frontward wind, we can still smell the source if we are moving towards it
     else :
         if -2 < roll_diff < 2:
-            wind_direction = [90,270] # or 270, we do not know
+            wind_direction = [90,270] 
             self.wind_state = "SIDE"
         elif roll_diff < -2:
             if yaw_diff > 0 : 
@@ -1278,27 +1214,41 @@ def wind_analysis(self, sim, pitch_diff, roll_diff, yaw_diff) :
                 wind_direction = [135]
                 self.wind_state = "SILENT"
     
-    self.last_predicted_wind = wind_direction  # now a list
+    self.last_predicted_wind = wind_direction  
     if not(sim.enable_wind) : self.wind_state = "NO WIND"
     return wind_direction
 
 
-def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perceived_wind_angles=None):
+def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perceived_wind_angles=None, headings=None):
     """
     frames: sim.renderer.frames["birdeyecam"]
     states: controller.trajectory_states
     step_ratio: how many sim steps per rendered frame
+
+    TO THE PERSON READING THIS : if you would like to see the result of this function, you can 
+    add the following code in run_controller.ipynb below the simulation loop :)
+
+            n_frames = len(sim.renderer.frames["birdeyecam"])
+            n_steps = len(controller.trajectory_states)
+            step_ratio = n_steps // n_frames
+            annotated = add_state_overlay(
+                sim.renderer.frames["birdeyecam"],
+                controller.trajectory_states,
+                step_ratio,
+                actual_wind_angles=actual_wind_angles,
+                perceived_wind_angles=controller.trajectory_wind_perceived,
+                headings=controller.trajectory_heading
+            )
+            mediapy.show_video(annotated, fps=sim.renderer.output_fps, title="top-down view with state")
     """
-    state_colors = {
+
+    state_colors = { # added to see which state we are in
         "TRACKING": (0, 255, 0),    # green
         "SEARCHING": (255, 255, 0), # yellow
         "AVOIDING": (0, 165, 255),  # orange
         "RUNNING":  (0, 0, 255),    # red
         "FLIPPED":  (255, 0, 255),  # purple
-        #temporary new states for debugging
-        "SIDE WIND": (255, 0, 255),
-        "SLOPE" : (255, 0, 255),
-        "BLIND FOLLOWING" : (255, 0, 255)
+        "BLIND FOLLOWING": (255, 255, 0), # cyan
     }
     
     # added to see the wind
@@ -1333,7 +1283,7 @@ def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perce
             thickness=2
         )
 
-        # actual wind arrow in white, bottom left
+        # actual wind arrow in white
         if actual_wind_angles is not None:
             wind_idx = min(i * step_ratio, len(actual_wind_angles) - 1)
             actual_angle = actual_wind_angles[wind_idx]
@@ -1343,15 +1293,35 @@ def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perce
                           color=(255, 255, 255), label="real")
 
         # perceived wind arrow in cyan, next to it
-        if perceived_wind_angles is not None:
+        if perceived_wind_angles is not None and headings is not None:
             perc_idx = min(i * step_ratio, len(perceived_wind_angles) - 1)
-            perc_angle = perceived_wind_angles[perc_idx]
-            if perc_angle is not None:
-                draw_arrow(f, perc_angle,
-                          center=(160, 430), length=40,
-                          color=(0, 255, 255), label="felt")
-
+            head_idx = min(i * step_ratio, len(headings) - 1)
+            directions = perceived_wind_angles[perc_idx]
+            heading = headings[head_idx]
+            
+            if len(directions) == 2:
+                # SIDE wind: draw both arrows from the same center
+                for angle in directions:
+                    world_angle = (angle + heading) % 360
+                    draw_arrow(f, world_angle,
+                            center=(160, 430), length=40,
+                            color=(0, 255, 255), label="")
+                cv2.putText(f, "felt: SIDE",
+                        (140, 455),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
+            else:
+                # single known direction
+                world_angle = (directions[0] + heading) % 360
+                draw_arrow(f, world_angle,
+                        center=(160, 430), length=40,
+                        color=(0, 255, 255), label=f"felt")
+        
+        if headings is not None:
+            head_idx = min(i * step_ratio, len(headings) - 1)
+            heading = headings[head_idx]
+            draw_arrow(f, heading,
+                    center=(260, 430), length=40,
+                    color=(0, 255, 0), label="fly")
 
         result.append(f)
     return result
-
