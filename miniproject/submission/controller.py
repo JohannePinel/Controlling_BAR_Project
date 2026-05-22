@@ -417,7 +417,7 @@ class Controller:
             #print('aaaaaahhhhhhhhhh')
         
         if self.current_slope_category == "carreful_upsidedown" and self.wind_state == "SIDE" and self.general_state != "RUNNING":  
-            self.speed = self.speed* 0.7 # very likely to fall, we slow down a lot
+            self.speed = self.speed* 0.2 # very likely to fall, we slow down a lot
             #print(' WE VERY VERY STUCK')
         
         
@@ -430,8 +430,8 @@ class Controller:
 
         drives = self.speed * action_drives * np.array([self.k, 1/self.k])
         joint_angles, adhesion = self.turning_controller.step(drives)
-        coxa_pitch = [1, 8, 15, 22, 29, 36] 
-        joint_angles[coxa_pitch] += 1  # push legs down slightly
+        #coxa_pitch = [1, 8, 15, 22, 29, 36] 
+        #joint_angles[coxa_pitch] += 1  # push legs down slightly
         return joint_angles, adhesion
     
 
