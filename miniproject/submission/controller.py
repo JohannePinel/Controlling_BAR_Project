@@ -117,6 +117,7 @@ class Controller:
         
         # ========Color vision parameters========
         self.frames = []
+        self.frames_drag_new = []
         
         # ========Proprioception paramters========
         self.current_slope_category = "flat"
@@ -441,6 +442,11 @@ class Controller:
         """
 
         regions = self.where_is_dragonfly()
+
+        #### AJOUT DRAGONFLY NEW ####
+        regions_drag_new = self.where_is_dragonfly_new()
+        self.test_where_is_dragonfly_new(regions_drag_new)
+        #### AJOUT DRAGONFLY NEW ####
         
         if np.mean(regions) > 0.25 or np.mean(regions) == 0: # if the dragonfly is detected in multiple regions, we are not sure about where it is and we do not want to take the risk to turn in the wrong direction
             self.avoiding_dragonfly = False
@@ -631,6 +637,7 @@ class Controller:
         vision_data = sim.get_raw_vision(sim.fly.name)
         im = np.concatenate([vision_data[0], vision_data[1]], axis=1)
         self.frames.append(im)
+        self.frames_drag_new.append(im.copy())
 
         return im
 
@@ -934,6 +941,30 @@ class Controller:
         else : self.dragonfly_seen = False
 
         return regions
+    
+    def where_is_dragonfly_new(self):
+        regions = np.zeros(NB_OF_RECT)
+        self.dragonfly_seen = False  # Reset state at start of check
+        bin_width = 900 // NB_OF_RECT
+
+        self.dragonfly_seen = False
+
+        for roi in self.all_rois_drag:
+            if roi.is_active:
+                for x in roi.edge_indices:
+                    idx = int(np.clip(x // bin_width, 0, NB_OF_RECT - 1))
+                    regions[idx] += 1
+                    
+                self.dragonfly_seen = True
+        
+        return regions
+    
+    def test_where_is_dragonfly_new(self, regions):
+        if self.dragonfly_seen == True: # Do nothing if no dragonfly detected
+            idx_max = np.argmax(regions)
+            bin_width = 900 // NB_OF_RECT
+            im = self.frames_drag_new[-1]
+            im[300:310, idx_max * bin_width : (idx_max + 1) * bin_width] = COLOR_RED
 
 
 #########################################################################################################
