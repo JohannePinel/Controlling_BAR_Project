@@ -51,7 +51,7 @@ FLIPPED_FOR_SURE = 200
 RUN_AWAY_FROM_DRAGONFLY = 1.5
 
 ESCAPE_DURATION = 100
-AVOIDANCE_DURATION = 60 
+AVOIDANCE_DURATION = 100  # = VISION_RATE: no gap between avoidance cycles
 DANGER_THRESHOLD = 60
 AVOIDANCE_DRAGONFLY_DURATION = 100 
 
@@ -104,7 +104,7 @@ class ROI:
        
 
 class Controller:
-    def __init__(self, sim: MiniprojectSimulation, threshold_line = 40, mode="normal", pitch_weight=1): 
+    def __init__(self, sim: MiniprojectSimulation, threshold_line = 40, mode="normal", pitch_weight=150):
         self.turning_controller = TurningController(sim.timestep)
 
         # ========General parameters========
