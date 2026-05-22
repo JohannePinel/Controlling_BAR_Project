@@ -55,9 +55,6 @@ ESCAPE_DURATION = 100
 AVOIDANCE_DURATION = 100  # = VISION_RATE: no gap between avoidance cycles
 DANGER_THRESHOLD = 60
 AVOIDANCE_DRAGONFLY_DURATION = 100 
-# ===== ajout parameters adri =====
-DRAG_WINDOW = 1600
-# ===== ajout parameters adri =====
 
 ODOR_DETECTION_THRESHOLD = 1e-8
 
@@ -118,11 +115,6 @@ class Controller:
         self.draw_edges = True
         self.general_state = "SEARCHING" # can be  "TRACKING", "SEARCHING","AVOIDING","RUNNING","FLIPPED","BLIND FOLLOWING"
         self.prev_state_before_running = "SEARCHING"
-
-        # ====== ajout parameters adri ======
-        self.drag_count = -2
-        self.last_drag_count = -1
-        # ====== ajout parameters adri ======
         
         # ========Color vision parameters========
         self.frames = []
@@ -350,12 +342,12 @@ class Controller:
         if self.escape_timer == 0:
             self.stuck = False
         
-        """if self.avoidance_dragonfly_timer > 0:
+        if self.avoidance_dragonfly_timer > 0:
             self.avoidance_dragonfly_timer -= 1
             if self.avoidance_dragonfly_timer == 0 and self.general_state != "RUNNING":
                 self.avoiding_dragonfly = False
                 self.avoidance_direction = 0
-                self.no_turn() adri """
+                self.no_turn()
 
 
 
@@ -441,62 +433,18 @@ class Controller:
             joint_angles[trochanter] -= 0.4  
         return joint_angles, adhesion
     
-###################################################################################
-###########################         FSM adri              ###########################
-###################################################################################
 
     def change_state(self, new_state):
 
-        """if new_state == "RUNNING": # want to enter RUNNING
-            if self.general_state != "RUNNING": # first time we see dragonfly
-                self.last_drag_count = self.step_count
-            # else: we don't init the drag_count, will just be inscr at the end of the function
-            validated_new_state = "RUNNING"
-        
-        else: # want to exit RUNNING
-            if self.drag_count > DRAG_WINDOW or self.drag_count == 0: # we lost sight of the dragonfly for too long, we stop running
-                validated_new_state = new_state
-                self.drag_count = 0
-            else:
-                validated_new_state = "RUNNING" """
-
-        
         if new_state == "AVOIDING" and self.general_state == "RUNNING":
             validated_new_state = "RUNNING" 
         elif new_state == "RUNNING" and self.general_state != "AVOIDING":
             validated_new_state = "AVOIDING"
         else:
             validated_new_state = new_state
-            
-
-        """if validated_new_state == "RUNNING":
-            self.incr_drag_count()"""
         
         self.general_state = validated_new_state
-        self.show_drag_count()
-
         return
-                
-
-    def incr_drag_count(self):
-        self.drag_count = self.step_count - self.last_drag_count
-
-
-    def show_drag_count(self):
-        if len(self.frames_drag_new) > 0 and self.frames_drag_new[-1] is not None:
-            im = self.frames_drag_new[-1]
-        else:
-            return
-        
-        how_many_squares = self.drag_count // 150
-        square_side = 20  # taille fixe
-        height = 450
-        x_start = 100
-        x_separation = square_side + 5  # petit gap entre les carrés
-
-        for i in range(how_many_squares):
-            im[height - square_side//2 : height + square_side//2,
-            x_start + i*x_separation : x_start + i*x_separation + square_side] = COLOR_BLACK
             
 ###################################################################################
 ########################### Obstacle Avoidance Strategy ###########################
@@ -528,7 +476,7 @@ class Controller:
             self.avoidance_direction = -1
 
         self.avoiding_dragonfly = True
-        #self.avoidance_dragonfly_timer = AVOIDANCE_DRAGONFLY_DURATION adri
+        self.avoidance_dragonfly_timer = AVOIDANCE_DRAGONFLY_DURATION 
 
  
     def decide_avoidance_strategy(self):
@@ -617,9 +565,6 @@ class Controller:
             self.all_rectangles[i].color = COLOR_RED if i == idx_max else COLOR_BLACK
         return regions
 
-
-    def turn_right(self): self.k = TURN_COEFF
-    def turn_left(self): self.k = 1/TURN_COEFF
     def no_turn(self): self.k = 1            
 
     def plot_trajectory(self, save_path="trajectory_plot.png"):
@@ -656,7 +601,7 @@ class Controller:
         plt.axis('equal')
         
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"📊 Trajectoire sauvegardée : {save_path}")
+        print(f"Trajectoire sauvegardée : {save_path}")
         print(f"   - Points de trajectoire : {len(self.trajectory)}")
         
         plt.close()
@@ -885,12 +830,6 @@ class Controller:
         while i < len(green_line) - roi.diff_width:
             if self.different_intensities(green_line[i + roi.diff_width], green_line[i], self.th_line):
                 roi.edge_indices.append(i)
-                """center = i + diff_width // 2
-                # Store this segment
-                roi.detected_segments.append((
-                    x0 + max(0, center - 5),
-                    x0 + min(len(green_line), center + 5)
-                ))"""
                 i += (roi.diff_width*2) # Skip ahead to find the next discrete edge 
             else:
                 i += 1
