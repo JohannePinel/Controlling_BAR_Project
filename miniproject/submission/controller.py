@@ -603,7 +603,7 @@ class Controller:
         regions = np.zeros(NB_OF_RECT)
 
         # Method 2: height-based (works for solid obstacles)
-        for i in range(len(self.last_vertical_segments)): # contains (x, y_top, y_bottom)
+        """for i in range(len(self.last_vertical_segments)): # contains (x, y_top, y_bottom)
             x = self.last_vertical_segments[i][0]
             height = self.last_vertical_segments[i][2]-self.last_vertical_segments[i][1]
 
@@ -616,10 +616,10 @@ class Controller:
                 if self.is_end_of_roi(x):
                     regions[3] += height
                 else:
-                    regions[2] += height
+                    regions[2] += height"""
 
         # Method 1: height-based (works for solid obstacles)
-        """for i in range(len(self.last_vertical_segments)):
+        for i in range(len(self.last_vertical_segments)):
             x = self.last_vertical_segments[i][0]
             height = self.last_vertical_segments[i][2] - self.last_vertical_segments[i][1]
             if self.is_left(x):
@@ -627,7 +627,7 @@ class Controller:
             else:
                 regions[3 if self.is_end_of_roi(x) else 2] += height
 
-        """
+        
 
         idx_max = np.argmax(regions)
         for i in range(NB_OF_RECT):
