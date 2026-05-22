@@ -34,7 +34,8 @@ X_RIGHT_DRAG = 900
 MIDDLE_LEFT = 449
 MIDDLE_RIGHT = 451
 NB_OF_ROI_DRAG = 22
-
+TRANSITION_WINDOW = 5
+DRAGONFLY_WINDOW = 3
 
 # rectangles
 NB_OF_RECT = 4
@@ -117,7 +118,7 @@ class Controller:
         
         # ========Color vision parameters========
         self.frames = []
-        
+        self.frames_test = []
         # ========Proprioception paramters========
         self.current_slope_category = "flat"
         self.prev_slope_category = "flat"
@@ -273,7 +274,8 @@ class Controller:
         flag = True if self.mode == "tuning ROI" or self.mode == "tuning slope" else False
         if self.frames: # because is empty at the first steps
             self.show_ROI_obst(self.frames[-1], show_lines = flag)
-            self.show_ROI_drag(self.frames[-1], show_lines = flag)
+            if self.mode == "tuning dragonfly":
+                self.show_ROI_drag(self.frames[-1], show_lines = False)
 
 
         # ======== Wind analysis ========
@@ -422,8 +424,8 @@ class Controller:
 
 
         # ======== Instructions to body =======
-
         drives = self.speed * action_drives * np.array([self.k, 1/self.k])
+
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
     
@@ -440,11 +442,12 @@ class Controller:
         Analyses positions of the dragonfly and decides if the fly should turn left or right to escape it
         """
 
-        regions = self.where_is_dragonfly()
+        regions = self.where_is_dragonfly_new() #self.where_is_dragonfly()
+        self.test_where_is_dragonfly_new(regions)
         
-        if np.mean(regions) > 0.25 or np.mean(regions) == 0: # if the dragonfly is detected in multiple regions, we are not sure about where it is and we do not want to take the risk to turn in the wrong direction
+        """if np.mean(regions) > 0.25 or np.mean(regions) == 0: # if the dragonfly is detected in multiple regions, we are not sure about where it is and we do not want to take the risk to turn in the wrong direction
             self.avoiding_dragonfly = False
-            return
+            return"""
         idx_max = np.argmax(regions)
         
         if idx_max == 0 or idx_max == 1:  # Dragonfly on the left
@@ -503,6 +506,12 @@ class Controller:
                 self.consecutive_detections = 0
         else : 
             self.avoiding_obstacle = False
+
+                    
+        # if len(self.trajectory) > 0:
+        #     current_pos = self.trajectory[-1]
+        #     self.obstacle_detection_points.append(current_pos)
+        #     self.obs = False
 
         if self.obs and len(self.trajectory) > 0:
             current_pos = self.trajectory[-1]
@@ -643,6 +652,7 @@ class Controller:
         vision_data = sim.get_raw_vision(sim.fly.name)
         im = np.concatenate([vision_data[0], vision_data[1]], axis=1)
         self.frames.append(im)
+        self.frames_test.append(im)
 
         return im
 
@@ -779,7 +789,7 @@ class Controller:
 
         # Check which ROI crosses an obstacle, and check activates other detection functions for each ROIs
         for roi in self.all_rois_obst: 
-            detected = self.detect_line_jump_ROI(im, roi) # boolean wether there is an obstacle crossing it or not.
+            detected = self.detect_line_jump_ROIobst(im, roi) # boolean wether there is an obstacle crossing it or not.
             results.append(detected)
 
         # Check dragonfly ROIs
@@ -797,7 +807,7 @@ class Controller:
 
         return tuple(results)
 
-    def detect_line_jump_ROI(self, im, roi):
+    def detect_line_jump_ROIobst(self, im, roi):
         """
         Detects multiple edges and evaluates every interval (including those at the start and end of 
         the scanline) for stability and intensity.
@@ -839,8 +849,8 @@ class Controller:
             # on different faces of an obstacle.
             
             # Avoid checking the pixels immediately inside the edge transition
-            check_start = idx_start + (5 if k > 0 else 0)
-            check_end = idx_end - (5 if k < len(boundary_points) - 2 else 0)
+            check_start = idx_start + (TRANSITION_WINDOW if k > 0 else 0)
+            check_end = idx_end - (TRANSITION_WINDOW if k < len(boundary_points) - 2 else 0)
             
             if check_end > check_start + 2:
                 segment = green_line[check_start:check_end]
@@ -918,7 +928,7 @@ class Controller:
         diff = np.diff(is_red.astype(int), prepend=0, append=0)
         roi.edge_indices = np.where(diff != 0)[0].tolist()
 
-        roi.is_active = np.sum(is_red) >= 5  # require at least 5 red pixels to avoid noise
+        roi.is_active = np.sum(is_red) >= DRAGONFLY_WINDOW  # require at least 5 red pixels to avoid noise
         return roi.is_active
 
 
@@ -926,7 +936,7 @@ class Controller:
 
         regions = np.zeros(NB_OF_RECT)
         x = self.dragonfly_pos[1]
-        separation = 900/NB_OF_RECT
+        """separation = 900/NB_OF_RECT"""
         
         n_active = sum(1 for roi in self.all_rois_drag if roi.is_active)
         if n_active < 2:  # require at least 2 ROIs active to confirm dragonfly
@@ -934,19 +944,45 @@ class Controller:
             return np.zeros(NB_OF_RECT)
 
         for i in range(NB_OF_RECT):
-            if x < (i+1)*separation:
+            """if x < (i+1)*separation:
                 regions[i] = 1
-                break
+                break"""
+            regions[i] = 1
+            break
 
-        if np.mean(regions)>0.25 :
+        """if np.mean(regions)>0.25 :
             #print("error : dragonfly is detected in multiple regions")
-            return np.zeros(NB_OF_RECT)
+            return np.zeros(NB_OF_RECT)"""
 
         if np.mean(regions) > 0 : self.dragonfly_seen = True
         else : self.dragonfly_seen = False
 
         return regions
 
+
+    def where_is_dragonfly_new(self):
+        regions = np.zeros(NB_OF_RECT)
+        self.dragonfly_seen = False  # Reset state at start of check
+        bin_width = 900 // NB_OF_RECT
+
+        self.dragonfly_seen = False
+
+        for roi in self.all_rois_drag:
+            if roi.is_active:
+                for x in roi.edge_indices:
+                    idx = int(np.clip(x // bin_width, 0, NB_OF_RECT - 1))
+                    regions[idx] += 1
+                    
+                self.dragonfly_seen = True
+        
+        return regions
+    
+    def test_where_is_dragonfly_new(self, regions):
+        if self.dragonfly_seen == True: # Do nothing if no dragonfly detected
+            idx_max = np.argmax(regions)
+            bin_width = 900 // NB_OF_RECT
+            im = self.frames_test[-1]
+            im[300:310, idx_max * bin_width : (idx_max + 1) * bin_width] = COLOR_RED
 
 #########################################################################################################
 ####################### FUNCTIONS THAT HELP THE TESTS BETWEEN DIFFERENT INTENSITIES #####################
