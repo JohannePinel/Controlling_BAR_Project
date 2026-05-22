@@ -51,7 +51,7 @@ FLIPPED_FOR_SURE = 200
 RUN_AWAY_FROM_DRAGONFLY = 1.5
 
 ESCAPE_DURATION = 100
-AVOIDANCE_DURATION = 60 
+AVOIDANCE_DURATION = 100  # = VISION_RATE: no gap between avoidance cycles
 DANGER_THRESHOLD = 60
 AVOIDANCE_DRAGONFLY_DURATION = 100 
 
@@ -104,7 +104,7 @@ class ROI:
        
 
 class Controller:
-    def __init__(self, sim: MiniprojectSimulation, threshold_line = 40, mode="normal", pitch_weight=1): 
+    def __init__(self, sim: MiniprojectSimulation, threshold_line = 40, mode="normal", pitch_weight=150):
         self.turning_controller = TurningController(sim.timestep)
 
         # ========General parameters========
@@ -541,18 +541,6 @@ class Controller:
                 regions[0 if self.is_end_of_roi(x) else 1] += height
             else:
                 regions[3 if self.is_end_of_roi(x) else 2] += height
-
-        # Method 2: direct edge-based (catches grass blades filtered by in_the_grass)
-        # Each edge pair in the obstacle zone adds a fixed danger score
-        for roi in self.all_rois_obst:
-            edges = roi.edge_indices
-            for j in range(0, len(edges) - 1, 2):
-                x = (edges[j] + edges[j + 1]) / 2 + roi.x0
-                if X_LEFT <= x <= X_RIGHT:
-                    if self.is_left(x):
-                        regions[0 if self.is_end_of_roi(x) else 1] += 20
-                    else:
-                        regions[3 if self.is_end_of_roi(x) else 2] += 20
 
         idx_max = np.argmax(regions)
         for i in range(NB_OF_RECT):
@@ -1106,14 +1094,6 @@ class Controller:
             candidates = []
             for start, end in roi.inner_segments:
                 candidates.append((start + end) / 2)
-
-            # fallback: if no inner segments (e.g. grass blades filtered by in_the_grass),
-            # use midpoints of consecutive edge pairs as candidate obstacle positions
-            if not candidates:
-                edges = roi.edge_indices
-                for i in range(0, len(edges) - 1, 2):
-                    mid = (edges[i] + edges[i + 1]) / 2 + roi.x0
-                    candidates.append(mid)
 
             for segment_mid_x in candidates:
                 distance = abs(segment_mid_x - center_vision_x)
