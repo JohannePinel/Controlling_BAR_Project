@@ -190,8 +190,7 @@ class Controller:
         self.step_count = 0
         self.t_last_odor = 0          # timestep of last odor detection
         self.last_odor_drives = np.ones(2)
-        self.odor_state = "LOST"      # "FOUND", "LOST"
-        self.prev_state = "LOST"
+        self.odor_state = "LOST"      # "FOUND", "LOST", "STILL HOPE", "LUNCH TIME"
         self.LOST_THRESHOLD = 250   
         self.alpha_fast = 2/(8+1)   # ~0.22
         self.upside_down = False 
@@ -241,9 +240,11 @@ class Controller:
             else : 
                 self.odor_state = "LOST"
                 # even with forward wind we do not smell it, it is really lost, need to search again
-            
-        if self.odor_state != self.prev_state: # change of state
-            self.prev_state = self.odor_state
+
+        if self.count == 39000 : 
+            print('mean_odor is : ' ,mean_odor)
+        if mean_odor > 1.4e-5 :
+            self.odor_state = "LUNCH TIME"
 
         # ======== Slope detection ========
         if self.count % PITCH_DETECTION_RATE == 1: # if was 0, the pitch or the derivative pitch would be reset to 0 right before the color_vision() starts
@@ -389,8 +390,8 @@ class Controller:
             action_drives = self.last_odor_drives # follow last known good direction
 
         else:  # SEARCHING
-            self.speed = SUSPICIOUS * 0.7
-            self.k = 1
+            self.speed = SUSPICIOUS * 0.5 #0.7
+            self.k = 3 #1
             if self.odor_state == "STILL_HOPE":
                 # keep heading toward last known good direction
                 action_drives = self.last_odor_drives
@@ -419,6 +420,9 @@ class Controller:
         if self.current_slope_category == "carreful_upsidedown" and self.wind_state == "SIDE" and self.general_state != "RUNNING":  
             self.speed = self.speed* 0.2 # very likely to fall, we slow down a lot
             #print(' WE VERY VERY STUCK')
+
+        if self.odor_state == "LUNCH TIME" :
+            self.speed = 0
         
         
             
@@ -430,10 +434,11 @@ class Controller:
 
         drives = self.speed * action_drives * np.array([self.k, 1/self.k])
         joint_angles, adhesion = self.turning_controller.step(drives)
-        coxa_pitch = [1, 8, 15, 22, 29, 36] 
-        trochanter = [5, 12, 19, 26, 33, 40]
-        joint_angles[coxa_pitch] += 0.25  # push legs down slightly
-        joint_angles[trochanter] -= 0.35  # push legs down slightly
+        if not(self.wind_state == "NO WIND") :
+            coxa_pitch = [1, 8, 15, 22, 29, 36] 
+            trochanter = [5, 12, 19, 26, 33, 40]
+            joint_angles[coxa_pitch] += 0.3  # push legs down slightly
+            joint_angles[trochanter] -= 0.4  # push legs down slightly
         return joint_angles, adhesion
     
 
