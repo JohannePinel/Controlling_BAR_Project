@@ -317,15 +317,15 @@ class Controller:
 
         if self.upside_down :
             self.change_state("FLIPPED")
-               
-        # Priority n°2: obstacle
-        elif self.avoiding_obstacle:
-            self.change_state("AVOIDING")
 
         # Priority n°1: dragonfly
         elif self.dragonfly_seen:
             self.prev_state_before_running = self.general_state  # remember what we were doing
             self.change_state("RUNNING")
+               
+        # Priority n°2: obstacle
+        elif self.avoiding_obstacle:
+            self.change_state("AVOIDING")
 
         # Priority n°3: smell tracking
         elif self.odor_state == "FOUND":
@@ -439,7 +439,7 @@ class Controller:
 
     def change_state(self, new_state):
 
-        """if new_state == "RUNNING": # want to enter RUNNING
+        if new_state == "RUNNING": # want to enter RUNNING
             if self.general_state != "RUNNING": # first time we see dragonfly
                 self.last_drag_count = self.step_count
             # else: we don't init the drag_count, will just be inscr at the end of the function
@@ -450,12 +450,9 @@ class Controller:
                 validated_new_state = new_state
                 self.drag_count = 0
             else:
-                validated_new_state = "RUNNING" """
+                validated_new_state = "RUNNING" 
 
-        if validated_new_state == "AVOIDING" and self.general_state == "RUNNING":
-            validated_new_state = "RUNNING" 
-        elif validated_new_state == "RUNNING" and self.general_state != "AVOIDING":
-            validated_new_state = "AVOIDING"
+        
             
 
         if validated_new_state == "RUNNING":
