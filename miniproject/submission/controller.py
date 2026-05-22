@@ -405,17 +405,22 @@ class Controller:
         
         if self.current_slope_category == "carreful_upsidedown": 
             self.speed = self.speed * 0.8  # walk slighlty slower in slopes
+            #print("we stuck")
            
         if self.wind_state == "SIDE":
             self.speed = self.speed* 0.7 # walk slighlty slower when there is wind on the side 
+            #print('we stuuuuuuuuuck')
 
         if self.hilltop_timer > 0 and self.general_state not in ("RUNNING", "FLIPPED"): # hilltop: brief caution when pitch transitions ascending → flat/descending
             self.speed = self.speed * 0.7
             self.hilltop_timer -= 1
-
+            #print('aaaaaahhhhhhhhhh')
+        
         if self.current_slope_category == "carreful_upsidedown" and self.wind_state == "SIDE" and self.general_state != "RUNNING":  
-            self.speed = self.speed* 0.2 # very likely to fall, we slow down a lot
-
+            self.speed = self.speed* 0.7 # very likely to fall, we slow down a lot
+            #print(' WE VERY VERY STUCK')
+        
+        
             
     
 
@@ -425,6 +430,8 @@ class Controller:
 
         drives = self.speed * action_drives * np.array([self.k, 1/self.k])
         joint_angles, adhesion = self.turning_controller.step(drives)
+        coxa_pitch = [1, 8, 15, 22, 29, 36] 
+        joint_angles[coxa_pitch] += 1  # push legs down slightly
         return joint_angles, adhesion
     
 
