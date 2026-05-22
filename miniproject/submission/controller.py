@@ -6,7 +6,9 @@ from scipy.spatial.transform import Rotation
 from flygym.examples.locomotion import TurningController
 import matplotlib.pyplot as plt
 
-
+"""
+GitHub link : https://github.com/JohannePinel/Controlling_BAR_Project.git
+"""
 
 RED = 0
 GREEN = 1
