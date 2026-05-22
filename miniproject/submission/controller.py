@@ -51,9 +51,9 @@ FLIPPED_FOR_SURE = 200
 RUN_AWAY_FROM_DRAGONFLY = 1.5
 
 ESCAPE_DURATION = 100
-AVOIDANCE_DURATION = 100  # = VISION_RATE: no gap between avoidance cycles
+AVOIDANCE_DURATION = 100 
 DANGER_THRESHOLD = 60
-AVOIDANCE_DRAGONFLY_DURATION = 100 
+AVOIDANCE_DRAGONFLY_DURATION = 150 
 
 ODOR_DETECTION_THRESHOLD = 1e-8
 
@@ -360,15 +360,14 @@ class Controller:
             action_drives = np.array([2.0, 0.0])
             
         elif self.general_state == "RUNNING" :
-            # running away from dragonfly
-            self.speed = SUSPICIOUS * 2
+            self.speed = SUSPICIOUS * 4
             self.k = 1
-            if self.avoidance_direction == -1:  
-                action_drives = np.array([0.2, 2.0])
-            elif self.avoidance_direction == 1: 
-                action_drives = np.array([2.0, 0.2])
+            if self.avoidance_direction == -1:
+                action_drives = np.array([0.5, 2.0])
+            elif self.avoidance_direction == 1:
+                action_drives = np.array([2.0, 0.5])
             else:
-                action_drives = np.array([1.0, 1.0])
+                action_drives = np.array([1.5, 1.5])
 
         elif self.general_state == "AVOIDING" :
             self.k = 1
@@ -443,19 +442,23 @@ class Controller:
 
         regions = self.where_is_dragonfly()
 
-        #### AJOUT DRAGONFLY NEW ####
         regions_drag_new = self.where_is_dragonfly_new()
         self.test_where_is_dragonfly_new(regions_drag_new)
-        #### AJOUT DRAGONFLY NEW ####
-        
-        if np.mean(regions) > 0.25 or np.mean(regions) == 0: # if the dragonfly is detected in multiple regions, we are not sure about where it is and we do not want to take the risk to turn in the wrong direction
+
+        # pick the best available region signal
+        if np.max(regions) > 0:
+            # original method: use position-based region
+            idx_max = np.argmax(regions)
+        elif self.dragonfly_seen and np.max(regions_drag_new) > 0:
+            # fallback: use edge-count-based region from new method
+            idx_max = np.argmax(regions_drag_new)
+        else:
             self.avoiding_dragonfly = False
             return
-        idx_max = np.argmax(regions)
-        
-        if idx_max == 0 or idx_max == 1:  # Dragonfly on the left
+
+        if idx_max == 0 or idx_max == 1:
             self.avoidance_direction = 1
-        elif idx_max == 2 or idx_max == 3: # Dragonfly on the right
+        else:
             self.avoidance_direction = -1
 
         self.avoiding_dragonfly = True
