@@ -44,16 +44,20 @@ HEIGHT_INCR = (Y_LOW - Y_HIGH)//2
 # walking
 TURN_RIGHT = 1.25
 TURN_LEFT = 1/TURN_RIGHT
-CONFIDENT = 1
 SUSPICIOUS = 0.5
+CONFIDENT = 1
+RUN_FOR_YOUR_LIFE = 2
 TURN_COEFF = 3
 FLIPPED_FOR_SURE = 200
 RUN_AWAY_FROM_DRAGONFLY = 1.5
 
 ESCAPE_DURATION = 100
 AVOIDANCE_DURATION = 100  # = VISION_RATE: no gap between avoidance cycles
-DANGER_THRESHOLD = 60
+DANGER_THRESHOLD = 30
 AVOIDANCE_DRAGONFLY_DURATION = 100 
+# ===== ajout parameters adri =====
+DRAG_WINDOW = 1600
+# ===== ajout parameters adri =====
 
 ODOR_DETECTION_THRESHOLD = 1e-8
 
@@ -114,6 +118,11 @@ class Controller:
         self.draw_edges = True
         self.general_state = "SEARCHING" # can be  "TRACKING", "SEARCHING","AVOIDING","RUNNING","FLIPPED","BLIND FOLLOWING"
         self.prev_state_before_running = "SEARCHING"
+
+        # ====== ajout parameters adri ======
+        self.drag_count = -2
+        self.last_drag_count = -1
+        # ====== ajout parameters adri ======
         
         # ========Color vision parameters========
         self.frames = []
@@ -307,26 +316,26 @@ class Controller:
         # ======== Finite State Machine ========
 
         if self.upside_down :
-            self.general_state = "FLIPPED"
+            self.change_state("FLIPPED")
+               
+        # Priority n°2: obstacle
+        elif self.avoiding_obstacle:
+            self.change_state("AVOIDING")
 
         # Priority n°1: dragonfly
         elif self.dragonfly_seen:
             self.prev_state_before_running = self.general_state  # remember what we were doing
-            self.general_state = "RUNNING"
-           
-        # Priority n°2: obstacle
-        elif self.avoiding_obstacle:
-            self.general_state = "AVOIDING"
+            self.change_state("RUNNING")
 
         # Priority n°3: smell tracking
         elif self.odor_state == "FOUND":
-            self.general_state = "TRACKING"
+            self.change_state("TRACKING")
 
         elif self.odor_state == "STILL_HOPE":
-            self.general_state = "BLIND FOLLOWING"
+            self.change_state("BLIND FOLLOWING")
 
         else:
-            self.general_state = "SEARCHING"
+            self.change_state("SEARCHING")
 
 
         if self.avoidance_timer > 0:
@@ -343,12 +352,12 @@ class Controller:
         if self.escape_timer == 0:
             self.stuck = False
         
-        if self.avoidance_dragonfly_timer > 0:
+        """if self.avoidance_dragonfly_timer > 0:
             self.avoidance_dragonfly_timer -= 1
             if self.avoidance_dragonfly_timer == 0 and self.general_state != "RUNNING":
                 self.avoiding_dragonfly = False
                 self.avoidance_direction = 0
-                self.no_turn()
+                self.no_turn() adri """
 
 
 
@@ -361,7 +370,7 @@ class Controller:
             
         elif self.general_state == "RUNNING" :
             # running away from dragonfly
-            self.speed = SUSPICIOUS * 2
+            self.speed = RUN_FOR_YOUR_LIFE 
             self.k = 1
             if self.avoidance_direction == -1:  
                 action_drives = np.array([0.2, 2.0])
@@ -418,17 +427,66 @@ class Controller:
             self.speed = self.speed* 0.2 # very likely to fall, we slow down a lot
 
             
-    
-
-
-
         # ======== Instructions to body =======
 
         drives = self.speed * action_drives * np.array([self.k, 1/self.k])
         joint_angles, adhesion = self.turning_controller.step(drives)
         return joint_angles, adhesion
     
+###################################################################################
+###########################         FSM ad              ###########################
+###################################################################################
 
+    def change_state(self, new_state):
+
+        """if new_state == "RUNNING": # want to enter RUNNING
+            if self.general_state != "RUNNING": # first time we see dragonfly
+                self.last_drag_count = self.step_count
+            # else: we don't init the drag_count, will just be inscr at the end of the function
+            validated_new_state = "RUNNING"
+        
+        else: # want to exit RUNNING
+            if self.drag_count > DRAG_WINDOW or self.drag_count == 0: # we lost sight of the dragonfly for too long, we stop running
+                validated_new_state = new_state
+                self.drag_count = 0
+            else:
+                validated_new_state = "RUNNING" """
+
+        if validated_new_state == "AVOIDING" and self.general_state == "RUNNING":
+            validated_new_state = "RUNNING" 
+        elif validated_new_state == "RUNNING" and self.general_state != "AVOIDING":
+            validated_new_state = "AVOIDING"
+            
+
+        if validated_new_state == "RUNNING":
+            self.incr_drag_count()
+        self.general_state = validated_new_state
+
+        self.show_drag_count()
+
+        return
+                
+
+    def incr_drag_count(self):
+        self.drag_count = self.step_count - self.last_drag_count
+
+
+    def show_drag_count(self):
+        if len(self.frames_drag_new) > 0 and self.frames_drag_new[-1] is not None:
+            im = self.frames_drag_new[-1]
+        else:
+            return
+        
+        how_many_squares = self.drag_count // 150
+        square_side = 20  # taille fixe
+        height = 450
+        x_start = 100
+        x_separation = square_side + 5  # petit gap entre les carrés
+
+        for i in range(how_many_squares):
+            im[height - square_side//2 : height + square_side//2,
+            x_start + i*x_separation : x_start + i*x_separation + square_side] = COLOR_BLACK
+            
 ###################################################################################
 ########################### Obstacle Avoidance Strategy ###########################
 ###################################################################################
@@ -441,16 +499,16 @@ class Controller:
         Analyses positions of the dragonfly and decides if the fly should turn left or right to escape it
         """
 
-        regions = self.where_is_dragonfly()
-
+        ###regions = self.where_is_dragonfly()
+ 
         #### AJOUT DRAGONFLY NEW ####
-        regions_drag_new = self.where_is_dragonfly_new()
-        self.test_where_is_dragonfly_new(regions_drag_new)
-        #### AJOUT DRAGONFLY NEW ####
-        
+        regions = self.where_is_dragonfly_new()
+        self.test_where_is_dragonfly_new(regions)
         if np.mean(regions) > 0.25 or np.mean(regions) == 0: # if the dragonfly is detected in multiple regions, we are not sure about where it is and we do not want to take the risk to turn in the wrong direction
             self.avoiding_dragonfly = False
             return
+        #### AJOUT DRAGONFLY NEW ####
+
         idx_max = np.argmax(regions)
         
         if idx_max == 0 or idx_max == 1:  # Dragonfly on the left
@@ -459,7 +517,7 @@ class Controller:
             self.avoidance_direction = -1
 
         self.avoiding_dragonfly = True
-        self.avoidance_dragonfly_timer = AVOIDANCE_DRAGONFLY_DURATION
+        #self.avoidance_dragonfly_timer = AVOIDANCE_DRAGONFLY_DURATION adri
 
  
     def decide_avoidance_strategy(self):
@@ -532,8 +590,24 @@ class Controller:
         """
         regions = np.zeros(NB_OF_RECT)
 
+        # Method 2: height-based (works for solid obstacles)
+        for i in range(len(self.last_vertical_segments)): # contains (x, y_top, y_bottom)
+            x = self.last_vertical_segments[i][0]
+            height = self.last_vertical_segments[i][2]-self.last_vertical_segments[i][1]
+
+            if self.is_left(x):
+                if self.is_end_of_roi(x):
+                    regions[0] += height
+                else:
+                    regions[1] += height
+            else:
+                if self.is_end_of_roi(x):
+                    regions[3] += height
+                else:
+                    regions[2] += height
+
         # Method 1: height-based (works for solid obstacles)
-        for i in range(len(self.last_vertical_segments)):
+        """for i in range(len(self.last_vertical_segments)):
             x = self.last_vertical_segments[i][0]
             height = self.last_vertical_segments[i][2] - self.last_vertical_segments[i][1]
             if self.is_left(x):
@@ -541,10 +615,13 @@ class Controller:
             else:
                 regions[3 if self.is_end_of_roi(x) else 2] += height
 
+        """
+
         idx_max = np.argmax(regions)
         for i in range(NB_OF_RECT):
             self.all_rectangles[i].color = COLOR_RED if i == idx_max else COLOR_BLACK
         return regions
+
 
     def turn_right(self): self.k = TURN_COEFF
     def turn_left(self): self.k = 1/TURN_COEFF
@@ -1238,7 +1315,7 @@ def wind_analysis(self, sim, pitch_diff, roll_diff, yaw_diff) :
     return wind_direction
 
 
-def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perceived_wind_angles=None, headings=None):
+def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perceived_wind_angles=None, headings=None, drag_count = -6):
     """
     frames: sim.renderer.frames["birdeyecam"]
     states: controller.trajectory_states
@@ -1291,7 +1368,7 @@ def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perce
         f = frame.copy()
         # map frame index back to a trajectory step
         state_idx = min(i * step_ratio, len(states) - 1)
-        state = states[state_idx]
+        state = states[state_idx] + str(drag_count)
         color = state_colors.get(state, (255, 255, 255))
         cv2.putText(
             f, state,
