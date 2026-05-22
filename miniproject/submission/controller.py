@@ -601,22 +601,6 @@ class Controller:
         """
         regions = np.zeros(NB_OF_RECT)
 
-        # Method 2: height-based (works for solid obstacles)
-        """for i in range(len(self.last_vertical_segments)): # contains (x, y_top, y_bottom)
-            x = self.last_vertical_segments[i][0]
-            height = self.last_vertical_segments[i][2]-self.last_vertical_segments[i][1]
-
-            if self.is_left(x):
-                if self.is_end_of_roi(x):
-                    regions[0] += height
-                else:
-                    regions[1] += height
-            else:
-                if self.is_end_of_roi(x):
-                    regions[3] += height
-                else:
-                    regions[2] += height"""
-
         # Method 1: height-based (works for solid obstacles)
         for i in range(len(self.last_vertical_segments)):
             x = self.last_vertical_segments[i][0]
@@ -1326,7 +1310,7 @@ def wind_analysis(self, sim, pitch_diff, roll_diff, yaw_diff) :
     return wind_direction
 
 
-def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perceived_wind_angles=None, headings=None, drag_count = -6):
+def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perceived_wind_angles=None, headings=None):
     """
     frames: sim.renderer.frames["birdeyecam"]
     states: controller.trajectory_states
@@ -1379,7 +1363,7 @@ def add_state_overlay(frames, states, step_ratio, actual_wind_angles=None, perce
         f = frame.copy()
         # map frame index back to a trajectory step
         state_idx = min(i * step_ratio, len(states) - 1)
-        state = states[state_idx] + str(drag_count)
+        state = states[state_idx] 
         color = state_colors.get(state, (255, 255, 255))
         cv2.putText(
             f, state,
