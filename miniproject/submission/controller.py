@@ -53,7 +53,7 @@ RUN_AWAY_FROM_DRAGONFLY = 1.5
 
 ESCAPE_DURATION = 100
 AVOIDANCE_DURATION = 100  # = VISION_RATE: no gap between avoidance cycles
-DANGER_THRESHOLD = 30
+DANGER_THRESHOLD = 60
 AVOIDANCE_DRAGONFLY_DURATION = 100 
 # ===== ajout parameters adri =====
 DRAG_WINDOW = 1600
@@ -200,8 +200,7 @@ class Controller:
         self.step_count = 0
         self.t_last_odor = 0          # timestep of last odor detection
         self.last_odor_drives = np.ones(2)
-        self.odor_state = "LOST"      # "FOUND", "LOST"
-        self.prev_state = "LOST"
+        self.odor_state = "LOST"      # "FOUND", "LOST", "STILL HOPE", "LUNCH TIME"
         self.LOST_THRESHOLD = 250   
         self.alpha_fast = 2/(8+1)   # ~0.22
         self.upside_down = False 
@@ -411,23 +410,23 @@ class Controller:
         
         
         # slow down situations to avoid getting flipped, no matter the state
-        
-        if self.current_slope_category == "carreful_upsidedown": 
-            self.speed = self.speed * 0.8  # walk slighlty slower in slopes
-           
-        if self.wind_state == "SIDE":
-            self.speed = self.speed* 0.7 # walk slighlty slower when there is wind on the side 
+        if self.general_state != "RUNNING" :
+            if self.current_slope_category == "carreful_upsidedown": 
+                self.speed = self.speed * 0.8  # walk slighlty slower in slopes
+            
+            if self.wind_state == "SIDE":
+                self.speed = self.speed* 0.7 # walk slighlty slower when there is wind on the side 
 
-        if self.hilltop_timer > 0 and self.general_state not in ("RUNNING", "FLIPPED"): # hilltop: brief caution when pitch transitions ascending → flat/descending
-            self.speed = self.speed * 0.7
-            self.hilltop_timer -= 1
+            if self.hilltop_timer > 0 and self.general_state not in ("RUNNING", "FLIPPED"): # hilltop: brief caution when pitch transitions ascending → flat/descending
+                self.speed = self.speed * 0.7
+                self.hilltop_timer -= 1
 
-        if self.current_slope_category == "carreful_upsidedown" and self.wind_state == "SIDE" and self.general_state != "RUNNING":  
-            self.speed = self.speed* 0.2 # very likely to fall, we slow down a lot
+            if self.current_slope_category == "carreful_upsidedown" and self.wind_state == "SIDE" and self.general_state != "RUNNING":  
+                self.speed = self.speed* 0.2 # very likely to fall, we slow down a lot
 
-        if self.odor_state == "LUNCH TIME" :
-            self.speed = 0
-        
+            if self.odor_state == "LUNCH TIME" :
+                self.speed = 0
+            
 
 
 
@@ -435,11 +434,11 @@ class Controller:
 
         drives = self.speed * action_drives * np.array([self.k, 1/self.k])
         joint_angles, adhesion = self.turning_controller.step(drives)
-        if not(self.wind_state == "NO WIND") :
+        if not(self.wind_state == "NO WIND") : # Lowers the center of mass when there is wind, to be more stable
             coxa_pitch = [1, 8, 15, 22, 29, 36] 
             trochanter = [5, 12, 19, 26, 33, 40]
-            joint_angles[coxa_pitch] += 0.3  # push legs down slightly
-            joint_angles[trochanter] -= 0.4  # push legs down slightly
+            joint_angles[coxa_pitch] += 0.3  
+            joint_angles[trochanter] -= 0.4  
         return joint_angles, adhesion
     
 ###################################################################################
