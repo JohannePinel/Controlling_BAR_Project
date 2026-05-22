@@ -960,11 +960,19 @@ class Controller:
         return regions
     
     def test_where_is_dragonfly_new(self, regions):
-        if self.dragonfly_seen == True: # Do nothing if no dragonfly detected
+        if self.dragonfly_seen == True: # Do nothing if no dragonfly detected¨
             idx_max = np.argmax(regions)
             bin_width = 900 // NB_OF_RECT
             im = self.frames_drag_new[-1]
-            im[300:310, idx_max * bin_width : (idx_max + 1) * bin_width] = COLOR_RED
+
+            for idx in range(len(regions)):    
+                color = COLOR_BLACK
+                if idx == idx_max:
+                    color = COLOR_RED
+                elif regions[idx] > 0:
+                    color = COLOR_BLUE
+                    
+                im[300:310, idx * bin_width : (idx + 1) * bin_width] = color
 
 
 #########################################################################################################
