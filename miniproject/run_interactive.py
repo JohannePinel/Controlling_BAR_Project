@@ -139,7 +139,7 @@ def main():
         dragonfly=args.dragonfly,
     )
     controller = TurningController(sim.timestep)
-    odor_smooth = DISCARD_VALUE 
+    odor_smooth = None
 
     pygame.init()
 
@@ -202,12 +202,6 @@ def main():
         odor_drives = odor_to_drives(odor_smooth) * 3 
             #time x to increase the effect of the odor on the speed, otherwise the fly is too much focused on the obstacle 
             # avoidance and doesn't move enough towards the target
-
-        mean_odor = np.max(odor_smooth) #if odor_smooth != DISCARD_VALUE else 0.0
-        
-        if mean_odor > ODOR_DETECTION_THRESHOLD: # we still smell the source
-            t_last_odor = step
-            last_odor_drives = odor_drives # will be our aim if we lose the smell next step
 
 
         """ CONTROLLER GAINS """
