@@ -132,11 +132,17 @@ class MiniprojectSimulation(Simulation):
         back_cam=True,
         top_cam=True,
         camera_res=(512, 512),
+        hills = False,
+        grass = False,
+        wind = False,
+        dragonfly = False,
     ):
-        self.enable_terrain = level in (1, 2, 3, 4)
-        self.enable_grass = level in (2, 3, 4)
-        self.enable_wind = level in (3, 4)
-        self.enable_dragonfly = level in (4,)
+        self.enable_terrain = True if hills else False
+        self.enable_grass = True if grass else False
+        self.enable_wind = True if wind else False
+        self.enable_dragonfly = True if dragonfly else False
+        print(f"dragonfly received : {dragonfly}")
+        print(f"dragonfly computed : {self.enable_dragonfly}")
         rng = np.random.default_rng(seed)
         self.rng = rng
 

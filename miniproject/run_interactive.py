@@ -50,31 +50,45 @@ def parse_args():
         action=argparse.BooleanOptionalAction,
         help="Whether to also render what the fly sees from its perspective.",
     )
+    parser.add_argument(
+        "--hills",
+        action=argparse.BooleanOptionalAction,
+        help=(
+            "enable hills"
+        ),
+    )
+    parser.add_argument(
+        "--grass",
+        action=argparse.BooleanOptionalAction,
+        help="enable obstacles",
+    )
+    parser.add_argument(
+        "--wind",
+        action=argparse.BooleanOptionalAction,
+        help="enable wind",
+    )
+    parser.add_argument(
+        "--dragonfly",
+        action=argparse.BooleanOptionalAction,
+        help="enable dragonfly",
+    )
     return parser.parse_args()
-
-# test joh
 
 def render_ommatidia(sim):
     """Convert ommatidia readouts to a displayable RGB image."""
     ommatidia = sim.get_ommatidia_readouts(sim.fly.name)
-    
-    # Convertir les deux yeux en images lisibles
+
+    # Convert the two eyes to human-readable images
     left_eye = sim.fly.retina.hex_pxls_to_human_readable(
-        ommatidia[1].max(-1), color_8bit=True  # œil gauche
+        ommatidia[0].max(-1), color_8bit=True # Corrected: ommatidia[0] for left eye
     )
     right_eye = sim.fly.retina.hex_pxls_to_human_readable(
-        ommatidia[0].max(-1), color_8bit=True  # œil droit
+        ommatidia[1].max(-1), color_8bit=True # Corrected: ommatidia[1] for right eye
     )
-    
-    # Concat horizontalement : gauche | droite
     vision_img = np.concatenate([left_eye, right_eye], axis=1)
-    
-    """# Convertir grayscale → RGB (nécessaire pour smoothscale)
-    if vision_img.ndim == 2:  # Si grayscale
-        vision_img = np.stack([vision_img] * 3, axis=-1)"""
-    
-    return vision_img
+    vision_img = np.stack([vision_img] * 3, axis=-1) # No difference but adds a 3rd argument (so the np.pad doesn't crash)
 
+    return vision_img
 
 def main():
     args = parse_args()
@@ -85,6 +99,10 @@ def main():
     sim = MiniprojectSimulation(
         level=args.level,
         seed=args.seed,
+        hills=args.hills,
+        grass=args.grass,
+        wind=args.wind,
+        dragonfly=args.dragonfly,
     )
     controller = TurningController(sim.timestep)
 
@@ -124,7 +142,7 @@ def main():
             events = pygame.event.get()
             controls.process_events(events)
             keys_pressed = pygame.key.get_pressed()
-            gain_left, gain_right = controls.get_actions(keys_pressed)
+            gain_left, gain_right = controls.get_actions(keys_pressed, memory=False)
             return gain_left, gain_right
 
         def render(frame: np.ndarray):
@@ -158,13 +176,15 @@ def main():
                 [frames[-1] for frames in sim.renderer.frames.values()], axis=-2
             )
             if args.render_fly_vision:
-                fly_vision = np.concatenate(sim.get_raw_vision(sim.fly.name), axis=-2)
+                fly_vision = render_ommatidia(sim)
+                # Calculate padding to center the vision view horizontally over the main cameras
+                diff = frame.shape[1] - fly_vision.shape[1]
                 fly_vision = np.pad(
                     fly_vision,
                     (
-                        [0] * 2,
-                        [(frame.shape[1] - fly_vision.shape[1]) // 2] * 2,
-                        [0] * 2,
+                        (0, 0),               # Height padding
+                        (diff // 2, diff - diff // 2), # Width padding (left, right)
+                        (0, 0),               # Channel padding
                     ),
                 )
                 frame = np.vstack((fly_vision, frame))

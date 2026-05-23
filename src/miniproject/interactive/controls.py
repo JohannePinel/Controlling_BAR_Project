@@ -45,9 +45,12 @@ class KeyboardControl:
         self.key_left = pygame.K_a
         self.key_right = pygame.K_d
         self.key_stop = pygame.K_q
+        self.accelerate = pygame.K_f
 
         self.prev_gain_left = 0.0
         self.prev_gain_right = 0.0
+        self.acceleration = 1.0
+        
 
     def process_events(self, events):
         for event in events:
@@ -69,13 +72,21 @@ class KeyboardControl:
             or keys_pressed[self.key_stop]
         )
 
-    def get_actions(self, keys_pressed=None):
-        gain_left = self.prev_gain_left
-        gain_right = self.prev_gain_right
+    def get_actions(self, keys_pressed=None, memory=False):
+        gain_left = self.prev_gain_left if memory else 0.0
+        gain_right = self.prev_gain_right if memory else 0.0
+        acceleration = self.acceleration
         command_applied = False
+        acceleration_applied = False
 
         if keys_pressed is None:
             keys_pressed = pygame.key.get_pressed()
+
+        if keys_pressed[self.accelerate]:
+            acceleration += 1.5
+            if acceleration > 2.5:
+                acceleration = 1.0
+        acceleration_applied = True
 
         if keys_pressed[self.key_stop]:
             gain_left = 0.0
@@ -106,14 +117,16 @@ class KeyboardControl:
             gain_left = -1.0
             command_applied = True
 
-        if self.hold_to_move and not command_applied:
+        if self.hold_to_move and not command_applied and not acceleration_applied:
             gain_left = 0.0
             gain_right = 0.0
 
-        self.prev_gain_left = gain_left
-        self.prev_gain_right = gain_right
+        print(f"acceleration: {acceleration}")
+        self.prev_gain_left = gain_left*acceleration
+        self.prev_gain_right = gain_right*acceleration
+        self.acceleration = acceleration
 
-        return gain_left, gain_right
+        return gain_left*acceleration, gain_right*acceleration
 
     def flush_keys(self):
         return
