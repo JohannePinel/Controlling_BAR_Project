@@ -69,9 +69,9 @@ def render_ommatidia(sim):
     # Concat horizontalement : gauche | droite
     vision_img = np.concatenate([left_eye, right_eye], axis=1)
     
-    # Convertir grayscale → RGB (nécessaire pour smoothscale)
+    """# Convertir grayscale → RGB (nécessaire pour smoothscale)
     if vision_img.ndim == 2:  # Si grayscale
-        vision_img = np.stack([vision_img] * 3, axis=-1)
+        vision_img = np.stack([vision_img] * 3, axis=-1)"""
     
     return vision_img
 
