@@ -1,5 +1,4 @@
 import argparse
-
 import numpy as np
 import pygame
 
@@ -7,6 +6,10 @@ from flygym.compose import ActuatorType
 from flygym.examples.locomotion import TurningController
 from miniproject.interactive import GameState
 from miniproject import MiniprojectSimulation
+
+from collections import deque
+import time
+
 
 WINDOW_NAME = "COBAR 2026 Miniproject"
 
@@ -17,7 +20,7 @@ ALPHA = 0.1
 ODOR_DETECTION_THRESHOLD = 1e-8
 
 # Vision parameters
-VISION_RATE = 10
+VISION_RATE = 100
 
 # Dataset parameters
 WINDOW = 5
@@ -88,19 +91,19 @@ def parse_args():
 
 def render_ommatidia(sim):
     """Convert ommatidia readouts to a displayable RGB image."""
-    ommatidia = sim.get_ommatidia_readouts(sim.fly.name)
+    ommatidia_brut = sim.get_ommatidia_readouts(sim.fly.name)
 
     # Convert the two eyes to human-readable images
     left_eye = sim.fly.retina.hex_pxls_to_human_readable(
-        ommatidia[0].max(-1), color_8bit=True # Corrected: ommatidia[0] for left eye
+        ommatidia_brut[0].max(-1), color_8bit=True # Corrected: ommatidia[0] for left eye
     )
     right_eye = sim.fly.retina.hex_pxls_to_human_readable(
-        ommatidia[1].max(-1), color_8bit=True # Corrected: ommatidia[1] for right eye
+        ommatidia_brut[1].max(-1), color_8bit=True # Corrected: ommatidia[1] for right eye
     )
     vision_img = np.concatenate([left_eye, right_eye], axis=1)
     vision_img = np.stack([vision_img] * 3, axis=-1) # No difference but adds a 3rd argument (so the np.pad doesn't crash)
 
-    return vision_img, ommatidia
+    return vision_img, ommatidia_brut
 
 def odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80): 
     n_sources = odor_intensities.shape[1]
@@ -197,7 +200,8 @@ def main():
             pygame.display.flip()
 
     step = 0
-    all_frames_ommatidias = []
+    ommatidia_buffer = deque(maxlen=WINDOW) 
+    dataset = []           # samples finaux
     while not game_state.get_quit():
 
         """ CONTROLLER GAINS """
@@ -226,30 +230,42 @@ def main():
 
 
         """ DISPLAYS """
-        if sim.render_as_needed():
+        if step % VISION_RATE == 0 and sim.render_as_needed():
             frame = np.concatenate([frames[-1] for frames in sim.renderer.frames.values()], axis=-2)
+            
+            _, ommatidia_fly_version = render_ommatidia(sim) # ommatidia_fly_version : np.array, (2, 721, 2) , float32
+            ommatidia_buffer.append(ommatidia_fly_version) # de taille (2, 721, 2)
 
-            if not no_omma_capture and args.render_fly_vision:
-                fly_vision, ommatidia_fly_version = render_ommatidia(sim) # ommatidia_fly_version : np.array, (2, 721, 2) , float32
-                all_frames_ommatidias.append(ommatidia_fly_version)
-
-                fly_vision = np.pad(
-                    fly_vision,
-                    (
-                        [0] * 2,
-                        [(frame.shape[1] - fly_vision.shape[1]) // 2] * 2,
-                        [0] * 2,
-                    ),
-                ) 
-                frame_tot = np.vstack((fly_vision, frame))
-                render(frame_tot)
-            else:
-                render(frame)
-
+            if len(ommatidia_buffer) >= WINDOW:
+                window = np.stack(list(ommatidia_buffer))  # (5, 2, 721, 2)
+                dataset.append({
+                    "input": window,
+                    "gains": np.array([gain_left, gain_right]),
+                    "mode": "manual" if not odor_mode_enabled else "auto",
+                    "step": step,
+                })    
+            render(frame)
 
         step += 1
     controls.quit()
     pygame.quit()
+
+    # To save de datas
+    if dataset:
+        inputs = np.stack([s["input"] for s in dataset])  # (N, 5, 2, 721, 2)
+        gains  = np.stack([s["gains"] for s in dataset])  # (N, 2)
+        modes  = np.array([s["mode"]  for s in dataset])  # (N,)
+        steps  = np.array([s["step"]  for s in dataset])  # (N,)
+
+        timestamp = int(time.time())
+        np.savez_compressed(
+            f"flat_grass_{timestamp}.npz",
+            inputs=inputs,
+            gains=gains,
+            modes=modes,
+            steps=steps,
+        )
+        print(f"Dataset: {len(dataset)} samples, input shape={inputs.shape}")
 
 
 if __name__ == "__main__":
