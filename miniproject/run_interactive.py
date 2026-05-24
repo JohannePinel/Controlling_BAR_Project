@@ -9,6 +9,7 @@ from miniproject import MiniprojectSimulation
 
 from collections import deque
 import time
+from pathlib import Path
 
 
 WINDOW_NAME = "COBAR 2026 Miniproject"
@@ -257,9 +258,11 @@ def main():
         modes  = np.array([s["mode"]  for s in dataset])  # (N,)
         steps  = np.array([s["step"]  for s in dataset])  # (N,)
 
+        project_root = Path(__file__).resolve().parent.parent
+        folder = project_root / "miniproject" / "training_datas" 
         timestamp = int(time.time())
         np.savez_compressed(
-            f"flat_grass_{timestamp}.npz",
+            folder / f"test_mini_{timestamp}.npz",
             inputs=inputs,
             gains=gains,
             modes=modes,
