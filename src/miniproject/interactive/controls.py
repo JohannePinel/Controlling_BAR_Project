@@ -108,34 +108,34 @@ class KeyboardControl:
             new_odor_mode = not self.prev_odor_mode # 1st we toggle
             self.toggle_odor = False                # Then we make the toggle impossible (before SPACE is relesed and then pressed)
 
-            if new_odor_mode == True:  # switch IN odor mode
-                gain_right = 1.0
-                gain_left  = 1.0
-                command_applied = True
-            elif keys_pressed[self.key_left] and not keys_pressed[self.key_right]: # means that we switch OUT of odor mode
-                if self.prev_gain_left < 0 or self.prev_gain_right < 0:
-                    gain_right = -0.6
-                    gain_left = -1.2
-                else:
-                    gain_left = 0.4
-                    gain_right = 1.2
-                command_applied = True
-            elif keys_pressed[self.key_right] and not keys_pressed[self.key_left]:
-                if self.prev_gain_left < 0 or self.prev_gain_right < 0:
-                    gain_left = -0.6
-                    gain_right = -1.2
-                else:
-                    gain_right = 0.4
-                    gain_left = 1.2
-                command_applied = True
-            elif keys_pressed[self.key_forward] and not keys_pressed[self.key_backward]:
-                gain_right = 1.0
-                gain_left = 1.0
-                command_applied = True
-            elif keys_pressed[self.key_backward] and not keys_pressed[self.key_forward]:
-                gain_right = -1.0
-                gain_left = -1.0
-                command_applied = True
+        if new_odor_mode == True:  # switch IN odor mode
+            gain_right = 1.0
+            gain_left  = 1.0
+            command_applied = True
+        elif keys_pressed[self.key_left] and not keys_pressed[self.key_right]: # means that we switch OUT of odor mode
+            if self.prev_gain_left < 0 or self.prev_gain_right < 0:
+                gain_right = -0.6
+                gain_left = -1.2
+            else:
+                gain_left = 0.4
+                gain_right = 1.2
+            command_applied = True
+        elif keys_pressed[self.key_right] and not keys_pressed[self.key_left]:
+            if self.prev_gain_left < 0 or self.prev_gain_right < 0:
+                gain_left = -0.6
+                gain_right = -1.2
+            else:
+                gain_right = 0.4
+                gain_left = 1.2
+            command_applied = True
+        elif keys_pressed[self.key_forward] and not keys_pressed[self.key_backward]:
+            gain_right = 1.0
+            gain_left = 1.0
+            command_applied = True
+        elif keys_pressed[self.key_backward] and not keys_pressed[self.key_forward]:
+            gain_right = -1.0
+            gain_left = -1.0
+            command_applied = True
 
         """ I comment it just for when I train the fly to always follow the odor so by default it needs gains of 1.0
             
