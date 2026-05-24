@@ -356,8 +356,8 @@ class MiniprojectSimulation(Simulation):
         self.mj_model.opt.wind[:] = wind
         self.world.flow_velocity[:2] = wind[:2]
 
-    def step(self):
-        if self._curr_step % 3000 == 0 and self._curr_step >= 2000:
+    def step(self, change_pos_banana=False):
+        if change_pos_banana and self._curr_step >= 2000:
             self._change_pose_banana()
 
         if self.enable_wind :

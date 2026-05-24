@@ -157,7 +157,7 @@ def main():
             WINDOW_NAME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN
         )
 
-        def get_controller_gains():
+        def get_controller_orders():
             pygame.event.pump()
             gain_left, gain_right, odor_mode_enabled = controls.get_actions(memory=False)
             return gain_left, gain_right
@@ -174,12 +174,12 @@ def main():
         screen = pygame.display.set_mode(display_size)
         pygame.display.set_caption(WINDOW_NAME)
 
-        def get_controller_gains():
+        def get_controller_orders():
             events = pygame.event.get()
             controls.process_events(events)
             keys_pressed = pygame.key.get_pressed()
-            gain_left, gain_right, odor_mode_enabled = controls.get_actions(keys_pressed, memory=False)
-            return gain_left, gain_right, odor_mode_enabled
+            gain_left, gain_right, odor_mode_enabled, order_changing_banana_pos = controls.get_actions(keys_pressed, memory=False)
+            return gain_left, gain_right, odor_mode_enabled, order_changing_banana_pos
 
         def render(frame: np.ndarray):
             frame_surface = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
@@ -194,7 +194,7 @@ def main():
     while not game_state.get_quit():
 
         """ CONTROLLER GAINS """
-        gain_left, gain_right, odor_mode_enabled = get_controller_gains()
+        gain_left, gain_right, odor_mode_enabled, order_changing_banana_pos = get_controller_orders()
 
 
         """ ODOR DETECTION """
@@ -217,7 +217,7 @@ def main():
         joint_angles, adhesion_signals = controller.step(drives)
         sim.set_actuator_inputs(sim.fly.name, ActuatorType.POSITION, joint_angles)
         sim.set_actuator_inputs(sim.fly.name, ActuatorType.ADHESION, adhesion_signals)
-        sim.step()
+        sim.step(change_pos_banana=order_changing_banana_pos)
 
         if sim.render_as_needed():
             # Render the latest RGB frame from flygym into the pygame window.

@@ -47,12 +47,16 @@ class KeyboardControl:
         self.key_stop = pygame.K_q
         self.key_accelerate = pygame.K_f
         self.key_odor_mode = pygame.K_SPACE
+        self.key_change_banana_pos = pygame.K_c
 
         self.prev_gain_left = 0.0
         self.prev_gain_right = 0.0
-        self.acceleration = 1.0
+
         self.prev_odor_mode = False
         self.toggle_odor = False
+
+        self.banana_pos_just_changed = False
+        self.change_banana_pos = False
         
 
     def process_events(self, events):
@@ -60,8 +64,11 @@ class KeyboardControl:
             if event.type == pygame.QUIT:
                 self.game_state.set_quit(True)
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_SPACE : # self.key_odor_mode: (equivalent just more readable)
+
+                if event.key == self.key_odor_mode: 
                     self.toggle_odor = True
+                if event.key == self.key_change_banana_pos:
+                    self.change_banana_pos = True
 
                 if event.key == pygame.K_ESCAPE:
                     self.game_state.set_quit(True)
@@ -86,17 +93,17 @@ class KeyboardControl:
     def get_actions(self, keys_pressed=None, memory=False):
         gain_left = self.prev_gain_left if memory else 0.0
         gain_right = self.prev_gain_right if memory else 0.0
-        acceleration = self.acceleration
+        acceleration = 1.0
         command_applied = False
         acceleration_applied = False
         new_odor_mode = self.prev_odor_mode
-
+        order_changing_banana_pos = self.banana_pos_just_changed
         if keys_pressed is None:
             keys_pressed = pygame.key.get_pressed()
 
         if keys_pressed[self.key_accelerate]:
-            acceleration += 1.5
-            if acceleration > 2.5:
+            acceleration += 1.0
+            if acceleration > 2.0:
                 acceleration = 1.0
         acceleration_applied = True
 
@@ -104,29 +111,29 @@ class KeyboardControl:
             gain_left = 0.0
             gain_right = 0.0
             command_applied = True
-        elif self.toggle_odor: # We don't check the key (because galère le toggle etc...), we check the state 
+        elif self.toggle_odor:
             new_odor_mode = not self.prev_odor_mode # 1st we toggle
-            self.toggle_odor = False                # Then we make the toggle impossible (before SPACE is relesed and then pressed)
+            self.toggle_odor = False # Can't re-toggle before key is released
 
-        if new_odor_mode == True:  # switch IN odor mode
+        if new_odor_mode == True: 
             gain_right = 1.0
             gain_left  = 1.0
             command_applied = True
         elif keys_pressed[self.key_left] and not keys_pressed[self.key_right]: # means that we switch OUT of odor mode
-            if self.prev_gain_left < 0 or self.prev_gain_right < 0:
-                gain_right = -0.6
+            if self.prev_gain_left <= 0 or self.prev_gain_right <= 0:
                 gain_left = -1.2
+                gain_right = 1.5
             else:
                 gain_left = 0.4
                 gain_right = 1.2
             command_applied = True
         elif keys_pressed[self.key_right] and not keys_pressed[self.key_left]:
-            if self.prev_gain_left < 0 or self.prev_gain_right < 0:
-                gain_left = -0.6
+            if self.prev_gain_left <= 0 or self.prev_gain_right <= 0:
+                gain_left = 1.5
                 gain_right = -1.2
             else:
-                gain_right = 0.4
                 gain_left = 1.2
+                gain_right = 0.4
             command_applied = True
         elif keys_pressed[self.key_forward] and not keys_pressed[self.key_backward]:
             gain_right = 1.0
@@ -142,17 +149,21 @@ class KeyboardControl:
             if self.hold_to_move and not command_applied and not acceleration_applied:
             gain_left = 0.0
             gain_right = 0.0"""
+        
+        if self.change_banana_pos:
+            order_changing_banana_pos = not self.banana_pos_just_changed # 1st we toggle
+            self.change_banana_pos = False # Can't re-toggle before key is released
+
 
         self.prev_gain_left = gain_left*acceleration
         self.prev_gain_right = gain_right*acceleration
         self.acceleration = acceleration
         self.prev_odor_mode = new_odor_mode
-        #print(f"acceleration: {acceleration}")
         print(f"new_odor_mode: {new_odor_mode}")
-        print(f"in controls.py, gain_left: {gain_left} -- gain_right: {gain_right}")
+        print(f"in controls.py, gain_left*acc: {gain_left*acceleration} -- gain_right*acc: {gain_right*acceleration}")
 
 
-        return gain_left*acceleration, gain_right*acceleration, new_odor_mode
+        return gain_left*acceleration, gain_right*acceleration, new_odor_mode, order_changing_banana_pos
 
     def flush_keys(self):
         return
