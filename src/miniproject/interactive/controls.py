@@ -117,19 +117,13 @@ class KeyboardControl:
             gain_right = 0.0
             command_applied = True
 
-        # ALL TOGGLES : 1st phase
-        elif self.toggle_odor:
-            new_odor_mode = not self.prev_odor_mode # 1st we toggle
-            self.toggle_odor = False # Can't re-toggle before key is released
-        elif self.toggle_acceleration:
-            new_acceleration = 1.5 if self.prev_acceleration == 1.0 else 1.0 
-            self.toggle_acceleration = False 
-
-        # ALL TOGGLES : 2nd phase (not needed for acc)
-        if new_odor_mode == True: 
-            gain_right = 1.0
-            gain_left  = 1.0
-            command_applied = True
+        # Dont want to toggle odor_mode anymore, now it's by default if no other command is applied
+        #elif self.toggle_odor:
+        #    new_odor_mode = not self.prev_odor_mode # 1st we toggle
+        #    self.toggle_odor = False # Can't re-toggle before key is released
+        #elif self.toggle_acceleration:
+        #    new_acceleration = 1.5 if self.prev_acceleration == 1.0 else 1.0 
+        #    self.toggle_acceleration = False         
 
         elif keys_pressed[self.key_left] and not keys_pressed[self.key_right]: # means that we switch OUT of odor mode
             if self.prev_gain_left < 0 or self.prev_gain_right < 0:
@@ -168,6 +162,11 @@ class KeyboardControl:
         if self.change_banana_pos:
             order_changing_banana_pos = not self.banana_pos_just_changed # 1st we toggle
             self.change_banana_pos = False # Can't re-toggle before key is released
+
+        new_odor_mode = not command_applied
+        if new_odor_mode == True: 
+            gain_right = 1.0
+            gain_left  = 1.0
 
         if new_odor_mode != self.prev_odor_mode:
             print(f"new_odor_mode: {new_odor_mode}")
