@@ -45,11 +45,14 @@ class KeyboardControl:
         self.key_left = pygame.K_a
         self.key_right = pygame.K_d
         self.key_stop = pygame.K_q
-        self.accelerate = pygame.K_f
+        self.key_accelerate = pygame.K_f
+        self.key_odor_mode = pygame.K_SPACE
 
         self.prev_gain_left = 0.0
         self.prev_gain_right = 0.0
         self.acceleration = 1.0
+        self.prev_odor_mode = False
+        self.toggle_odor = False
         
 
     def process_events(self, events):
@@ -57,19 +60,27 @@ class KeyboardControl:
             if event.type == pygame.QUIT:
                 self.game_state.set_quit(True)
             elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE : # self.key_odor_mode: (equivalent just more readable)
+                    self.toggle_odor = True
+
                 if event.key == pygame.K_ESCAPE:
                     self.game_state.set_quit(True)
-                elif event.key == pygame.K_SPACE and not self.game_state.get_reset():
+                elif event.key == pygame.K_r and not self.game_state.get_reset():
                     self.game_state.set_reset(True)
+                
 
     def any_key_pressed(self):
         keys_pressed = pygame.key.get_pressed()
+        # pygame.key.get_pressed() is just a list of bool for each key on the laptop
+        # So keys_pressed[self.key_forward] is juste checking this big list at the index "self.key_forward"
         return (
             keys_pressed[self.key_forward]
             or keys_pressed[self.key_backward]
             or keys_pressed[self.key_left]
             or keys_pressed[self.key_right]
             or keys_pressed[self.key_stop]
+            #or keys_pressed[self.key_accelerate]
+            #or keys_pressed[self.key_odor_mode]
         )
 
     def get_actions(self, keys_pressed=None, memory=False):
@@ -78,11 +89,12 @@ class KeyboardControl:
         acceleration = self.acceleration
         command_applied = False
         acceleration_applied = False
+        new_odor_mode = self.prev_odor_mode
 
         if keys_pressed is None:
             keys_pressed = pygame.key.get_pressed()
 
-        if keys_pressed[self.accelerate]:
+        if keys_pressed[self.key_accelerate]:
             acceleration += 1.5
             if acceleration > 2.5:
                 acceleration = 1.0
@@ -92,41 +104,55 @@ class KeyboardControl:
             gain_left = 0.0
             gain_right = 0.0
             command_applied = True
-        elif keys_pressed[self.key_left] and not keys_pressed[self.key_right]:
-            if self.prev_gain_left < 0 or self.prev_gain_right < 0:
-                gain_right = -0.6
-                gain_left = -1.2
-            else:
-                gain_left = 0.4
-                gain_right = 1.2
-            command_applied = True
-        elif keys_pressed[self.key_right] and not keys_pressed[self.key_left]:
-            if self.prev_gain_left < 0 or self.prev_gain_right < 0:
-                gain_left = -0.6
-                gain_right = -1.2
-            else:
-                gain_right = 0.4
-                gain_left = 1.2
-            command_applied = True
-        elif keys_pressed[self.key_forward] and not keys_pressed[self.key_backward]:
-            gain_right = 1.0
-            gain_left = 1.0
-            command_applied = True
-        elif keys_pressed[self.key_backward] and not keys_pressed[self.key_forward]:
-            gain_right = -1.0
-            gain_left = -1.0
-            command_applied = True
+        elif self.toggle_odor: # We don't check the key (because galère le toggle etc...), we check the state 
+            new_odor_mode = not self.prev_odor_mode # 1st we toggle
+            self.toggle_odor = False                # Then we make the toggle impossible (before SPACE is relesed and then pressed)
 
-        if self.hold_to_move and not command_applied and not acceleration_applied:
+            if new_odor_mode == True:  # switch IN odor mode
+                gain_right = 1.0
+                gain_left  = 1.0
+                command_applied = True
+            elif keys_pressed[self.key_left] and not keys_pressed[self.key_right]: # means that we switch OUT of odor mode
+                if self.prev_gain_left < 0 or self.prev_gain_right < 0:
+                    gain_right = -0.6
+                    gain_left = -1.2
+                else:
+                    gain_left = 0.4
+                    gain_right = 1.2
+                command_applied = True
+            elif keys_pressed[self.key_right] and not keys_pressed[self.key_left]:
+                if self.prev_gain_left < 0 or self.prev_gain_right < 0:
+                    gain_left = -0.6
+                    gain_right = -1.2
+                else:
+                    gain_right = 0.4
+                    gain_left = 1.2
+                command_applied = True
+            elif keys_pressed[self.key_forward] and not keys_pressed[self.key_backward]:
+                gain_right = 1.0
+                gain_left = 1.0
+                command_applied = True
+            elif keys_pressed[self.key_backward] and not keys_pressed[self.key_forward]:
+                gain_right = -1.0
+                gain_left = -1.0
+                command_applied = True
+
+        """ I comment it just for when I train the fly to always follow the odor so by default it needs gains of 1.0
+            
+            if self.hold_to_move and not command_applied and not acceleration_applied:
             gain_left = 0.0
-            gain_right = 0.0
+            gain_right = 0.0"""
 
-        print(f"acceleration: {acceleration}")
         self.prev_gain_left = gain_left*acceleration
         self.prev_gain_right = gain_right*acceleration
         self.acceleration = acceleration
+        self.prev_odor_mode = new_odor_mode
+        #print(f"acceleration: {acceleration}")
+        print(f"new_odor_mode: {new_odor_mode}")
+        print(f"in controls.py, gain_left: {gain_left} -- gain_right: {gain_right}")
 
-        return gain_left*acceleration, gain_right*acceleration
+
+        return gain_left*acceleration, gain_right*acceleration, new_odor_mode
 
     def flush_keys(self):
         return

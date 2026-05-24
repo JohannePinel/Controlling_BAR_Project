@@ -140,6 +140,7 @@ def main():
     )
     controller = TurningController(sim.timestep)
     odor_smooth = None
+    odor_mode_enabled = False
 
     pygame.init()
 
@@ -158,7 +159,7 @@ def main():
 
         def get_controller_gains():
             pygame.event.pump()
-            gain_left, gain_right = controls.get_actions()
+            gain_left, gain_right, odor_mode_enabled = controls.get_actions(memory=False)
             return gain_left, gain_right
 
         def render(frame: np.ndarray):
@@ -177,8 +178,8 @@ def main():
             events = pygame.event.get()
             controls.process_events(events)
             keys_pressed = pygame.key.get_pressed()
-            gain_left, gain_right = controls.get_actions(keys_pressed, memory=False)
-            return gain_left, gain_right
+            gain_left, gain_right, odor_mode_enabled = controls.get_actions(keys_pressed, memory=False)
+            return gain_left, gain_right, odor_mode_enabled
 
         def render(frame: np.ndarray):
             frame_surface = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
@@ -192,6 +193,10 @@ def main():
     step = 0
     while not game_state.get_quit():
 
+        """ CONTROLLER GAINS """
+        gain_left, gain_right, odor_mode_enabled = get_controller_gains()
+
+
         """ ODOR DETECTION """
         olfaction = sim.get_olfaction(sim.fly.name)
         if odor_smooth is None:
@@ -199,13 +204,7 @@ def main():
         else:
             odor_smooth = (1 - ALPHA) * odor_smooth + ALPHA * olfaction
         
-        odor_drives = odor_to_drives(odor_smooth) * 3 
-            #time x to increase the effect of the odor on the speed, otherwise the fly is too much focused on the obstacle 
-            # avoidance and doesn't move enough towards the target
-
-
-        """ CONTROLLER GAINS """
-        gain_left, gain_right = get_controller_gains()
+        odor_drives = odor_to_drives(odor_smooth) * 3 if odor_mode_enabled else np.ones(2) 
 
 
         """ INSTRUCTIONS TO BODY """
