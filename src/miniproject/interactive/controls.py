@@ -45,7 +45,7 @@ class KeyboardControl:
         self.key_left = pygame.K_a
         self.key_right = pygame.K_d
         self.key_stop = pygame.K_q
-        self.key_accelerate = pygame.K_f
+        self.key_acceleration = pygame.K_f
         self.key_odor_mode = pygame.K_SPACE
         self.key_change_banana_pos = pygame.K_c
 
@@ -54,6 +54,9 @@ class KeyboardControl:
 
         self.prev_odor_mode = False
         self.toggle_odor = False
+
+        self.prev_acceleration = 1.0
+        self.toggle_acceleration = False
 
         self.banana_pos_just_changed = False
         self.change_banana_pos = False
@@ -66,9 +69,11 @@ class KeyboardControl:
             elif event.type == pygame.KEYDOWN:
 
                 if event.key == self.key_odor_mode: 
-                    self.toggle_odor = True
+                    self.toggle_odor = True 
                 if event.key == self.key_change_banana_pos:
                     self.change_banana_pos = True
+                if event.key == self.key_acceleration:
+                    self.toggle_acceleration = True
 
                 if event.key == pygame.K_ESCAPE:
                     self.game_state.set_quit(True)
@@ -86,39 +91,44 @@ class KeyboardControl:
             or keys_pressed[self.key_left]
             or keys_pressed[self.key_right]
             or keys_pressed[self.key_stop]
-            #or keys_pressed[self.key_accelerate]
+            #or keys_pressed[self.key_acceleration]
             #or keys_pressed[self.key_odor_mode]
         )
 
     def get_actions(self, keys_pressed=None, memory=False):
         gain_left = self.prev_gain_left if memory else 0.0
         gain_right = self.prev_gain_right if memory else 0.0
-        acceleration = 1.0
+
+        new_odor_mode = self.prev_odor_mode
+        new_acceleration = self.prev_acceleration
+        order_changing_banana_pos = self.banana_pos_just_changed
+
         command_applied = False
         acceleration_applied = False
-        new_odor_mode = self.prev_odor_mode
-        order_changing_banana_pos = self.banana_pos_just_changed
+
+
+        # SECURITY
         if keys_pressed is None:
             keys_pressed = pygame.key.get_pressed()
-
-        if keys_pressed[self.key_accelerate]:
-            acceleration += 1.0
-            if acceleration > 2.0:
-                acceleration = 1.0
-        acceleration_applied = True
-
         if keys_pressed[self.key_stop]:
             gain_left = 0.0
             gain_right = 0.0
             command_applied = True
+
+        # ALL TOGGLES : 1st phase
         elif self.toggle_odor:
             new_odor_mode = not self.prev_odor_mode # 1st we toggle
             self.toggle_odor = False # Can't re-toggle before key is released
+        elif self.toggle_acceleration:
+            new_acceleration = 1.5 if self.prev_acceleration == 1.0 else 1.0 
+            self.toggle_acceleration = False 
 
+        # ALL TOGGLES : 2nd phase
         if new_odor_mode == True: 
             gain_right = 1.0
             gain_left  = 1.0
             command_applied = True
+
         elif keys_pressed[self.key_left] and not keys_pressed[self.key_right]: # means that we switch OUT of odor mode
             if self.prev_gain_left <= 0 or self.prev_gain_right <= 0:
                 gain_left = -1.2
@@ -154,16 +164,18 @@ class KeyboardControl:
             order_changing_banana_pos = not self.banana_pos_just_changed # 1st we toggle
             self.change_banana_pos = False # Can't re-toggle before key is released
 
-
-        self.prev_gain_left = gain_left*acceleration
-        self.prev_gain_right = gain_right*acceleration
-        self.acceleration = acceleration
+        if new_odor_mode != self.prev_odor_mode:
+            print(f"new_odor_mode: {new_odor_mode}")
         self.prev_odor_mode = new_odor_mode
-        print(f"new_odor_mode: {new_odor_mode}")
-        print(f"in controls.py, gain_left*acc: {gain_left*acceleration} -- gain_right*acc: {gain_right*acceleration}")
+
+        if new_acceleration != self.prev_acceleration:
+            print(f"in controls.py, gain_left*acc: {gain_left*new_acceleration} -- gain_right*acc: {gain_right*new_acceleration}")
+        self.prev_acceleration = new_acceleration
 
 
-        return gain_left*acceleration, gain_right*acceleration, new_odor_mode, order_changing_banana_pos
+        self.prev_gain_left = gain_left*new_acceleration
+        self.prev_gain_right = gain_right*new_acceleration
+        return gain_left*new_acceleration, gain_right*new_acceleration, new_odor_mode, order_changing_banana_pos
 
     def flush_keys(self):
         return

@@ -212,35 +212,35 @@ def main():
             pass  # not implemented yet
         if game_state.get_quit():
             break
-        
         drives = odor_drives * np.array([gain_left, gain_right])
         joint_angles, adhesion_signals = controller.step(drives)
         sim.set_actuator_inputs(sim.fly.name, ActuatorType.POSITION, joint_angles)
         sim.set_actuator_inputs(sim.fly.name, ActuatorType.ADHESION, adhesion_signals)
         sim.step(change_pos_banana=order_changing_banana_pos)
 
+
+        """ DISPLAYS """
         if sim.render_as_needed():
-            # Render the latest RGB frame from flygym into the pygame window.
-            frame = np.concatenate(
-                [frames[-1] for frames in sim.renderer.frames.values()], axis=-2
-            )
+            frame = np.concatenate([frames[-1] for frames in sim.renderer.frames.values()], axis=-2)
+
             if args.render_fly_vision:
                 fly_vision = render_ommatidia(sim)
-                # Calculate padding to center the vision view horizontally over the main cameras
                 diff = frame.shape[1] - fly_vision.shape[1]
                 fly_vision = np.pad(
                     fly_vision,
                     (
-                        (0, 0),               # Height padding
-                        (diff // 2, diff - diff // 2), # Width padding (left, right)
-                        (0, 0),               # Channel padding
+                        (0, 0),               
+                        (diff // 2, diff - diff // 2), 
+                        (0, 0),               
                     ),
-                )
-                frame = np.vstack((fly_vision, frame))
-            render(frame)
+                ) 
+                frame_tot = np.vstack((fly_vision, frame))
+                render(frame_tot)
+            else:
+                render(frame)
+
 
         step += 1
-
     controls.quit()
     pygame.quit()
 

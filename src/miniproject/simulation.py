@@ -169,7 +169,7 @@ class MiniprojectSimulation(Simulation):
             grass_positions = get_grass_positions(
                 target_position=banana_xy,
                 target_clearance_radius=8.0,
-                grass_clearance_radius=6.0,
+                grass_clearance_radius=9.0, #6.0 initially but I put it higher to make the first trainings easier
                 fly_clearance_radius=8.0,
                 rng=rng,
             )
