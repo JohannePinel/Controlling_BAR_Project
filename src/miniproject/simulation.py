@@ -347,6 +347,12 @@ class MiniprojectSimulation(Simulation):
         next_pos = np.array([banana_offset_xy[0], banana_offset_xy[1], z])
         self.world.set_banana_pose(self, next_pos)
 
+    def get_distance_to_banana(self):
+        """Returns the Euclidean distance between the fly's thorax and the banana in the XY plane."""
+        fly_pos = self.get_body_positions(self.fly.name)[0][:2]
+        banana_pos = np.array(self.world.banana_xy)
+        return np.linalg.norm(fly_pos - banana_pos)
+
     ##############################################################################
     ########################### WIND ###########################################
     ##############################################################################
@@ -357,7 +363,9 @@ class MiniprojectSimulation(Simulation):
         self.world.flow_velocity[:2] = wind[:2]
 
     def step(self, change_pos_banana=False):
-        if change_pos_banana and self._curr_step >= 2000:
+        dist = self.get_distance_to_banana()
+        # print(f"dist to banana : {dist}") 
+        if (dist <= 5.0 or change_pos_banana) and self._curr_step >= 2000:
             self._change_pose_banana()
 
         if self.enable_wind :

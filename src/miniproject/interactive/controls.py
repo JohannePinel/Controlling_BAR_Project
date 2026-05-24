@@ -48,6 +48,7 @@ class KeyboardControl:
         self.key_acceleration = pygame.K_f
         self.key_odor_mode = pygame.K_SPACE
         self.key_change_banana_pos = pygame.K_c
+        self.key_forbid_capturing_ommatidia = pygame.K_n
 
         self.prev_gain_left = 0.0
         self.prev_gain_right = 0.0
@@ -66,15 +67,14 @@ class KeyboardControl:
         for event in events:
             if event.type == pygame.QUIT:
                 self.game_state.set_quit(True)
-            elif event.type == pygame.KEYDOWN:
 
+            elif event.type == pygame.KEYDOWN:
                 if event.key == self.key_odor_mode: 
                     self.toggle_odor = True 
                 if event.key == self.key_change_banana_pos:
                     self.change_banana_pos = True
                 if event.key == self.key_acceleration:
                     self.toggle_acceleration = True
-
                 if event.key == pygame.K_ESCAPE:
                     self.game_state.set_quit(True)
                 elif event.key == pygame.K_r and not self.game_state.get_reset():
@@ -91,6 +91,7 @@ class KeyboardControl:
             or keys_pressed[self.key_left]
             or keys_pressed[self.key_right]
             or keys_pressed[self.key_stop]
+            or keys_pressed[self.key_forbid_capturing_ommatidia]
             #or keys_pressed[self.key_acceleration]
             #or keys_pressed[self.key_odor_mode]
         )
@@ -102,6 +103,7 @@ class KeyboardControl:
         new_odor_mode = self.prev_odor_mode
         new_acceleration = self.prev_acceleration
         order_changing_banana_pos = self.banana_pos_just_changed
+        no_omma_capture = False
 
         command_applied = False
         acceleration_applied = False
@@ -123,14 +125,14 @@ class KeyboardControl:
             new_acceleration = 1.5 if self.prev_acceleration == 1.0 else 1.0 
             self.toggle_acceleration = False 
 
-        # ALL TOGGLES : 2nd phase
+        # ALL TOGGLES : 2nd phase (not needed for acc)
         if new_odor_mode == True: 
             gain_right = 1.0
             gain_left  = 1.0
             command_applied = True
 
         elif keys_pressed[self.key_left] and not keys_pressed[self.key_right]: # means that we switch OUT of odor mode
-            if self.prev_gain_left <= 0 or self.prev_gain_right <= 0:
+            if self.prev_gain_left < 0 or self.prev_gain_right < 0:
                 gain_left = -1.2
                 gain_right = 1.5
             else:
@@ -138,7 +140,7 @@ class KeyboardControl:
                 gain_right = 1.2
             command_applied = True
         elif keys_pressed[self.key_right] and not keys_pressed[self.key_left]:
-            if self.prev_gain_left <= 0 or self.prev_gain_right <= 0:
+            if self.prev_gain_left < 0 or self.prev_gain_right < 0:
                 gain_left = 1.5
                 gain_right = -1.2
             else:
@@ -153,6 +155,9 @@ class KeyboardControl:
             gain_right = -1.0
             gain_left = -1.0
             command_applied = True
+
+        if keys_pressed[self.key_forbid_capturing_ommatidia]:
+            no_omma_capture = True
 
         """ I comment it just for when I train the fly to always follow the odor so by default it needs gains of 1.0
             
@@ -175,7 +180,7 @@ class KeyboardControl:
 
         self.prev_gain_left = gain_left*new_acceleration
         self.prev_gain_right = gain_right*new_acceleration
-        return gain_left*new_acceleration, gain_right*new_acceleration, new_odor_mode, order_changing_banana_pos
+        return gain_left*new_acceleration, gain_right*new_acceleration, new_odor_mode, order_changing_banana_pos, no_omma_capture
 
     def flush_keys(self):
         return

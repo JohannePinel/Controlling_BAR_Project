@@ -16,6 +16,12 @@ DISCARD_VALUE = 123456789
 ALPHA = 0.1   
 ODOR_DETECTION_THRESHOLD = 1e-8
 
+# Vision parameters
+VISION_RATE = 10
+
+# Dataset parameters
+WINDOW = 5
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -94,7 +100,7 @@ def render_ommatidia(sim):
     vision_img = np.concatenate([left_eye, right_eye], axis=1)
     vision_img = np.stack([vision_img] * 3, axis=-1) # No difference but adds a 3rd argument (so the np.pad doesn't crash)
 
-    return vision_img
+    return vision_img, ommatidia
 
 def odor_to_drives(odor_intensities, attractive_gain=-500, aversive_gain=80): 
     n_sources = odor_intensities.shape[1]
@@ -178,8 +184,8 @@ def main():
             events = pygame.event.get()
             controls.process_events(events)
             keys_pressed = pygame.key.get_pressed()
-            gain_left, gain_right, odor_mode_enabled, order_changing_banana_pos = controls.get_actions(keys_pressed, memory=False)
-            return gain_left, gain_right, odor_mode_enabled, order_changing_banana_pos
+            gain_left, gain_right, odor_mode_enabled, order_changing_banana_pos, no_omma_capture = controls.get_actions(keys_pressed, memory=False)
+            return gain_left, gain_right, odor_mode_enabled, order_changing_banana_pos, no_omma_capture
 
         def render(frame: np.ndarray):
             frame_surface = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
@@ -191,10 +197,11 @@ def main():
             pygame.display.flip()
 
     step = 0
+    all_frames_ommatidias = []
     while not game_state.get_quit():
 
         """ CONTROLLER GAINS """
-        gain_left, gain_right, odor_mode_enabled, order_changing_banana_pos = get_controller_orders()
+        gain_left, gain_right, odor_mode_enabled, order_changing_banana_pos, no_omma_capture = get_controller_orders()
 
 
         """ ODOR DETECTION """
@@ -203,7 +210,6 @@ def main():
             odor_smooth = olfaction
         else:
             odor_smooth = (1 - ALPHA) * odor_smooth + ALPHA * olfaction
-        
         odor_drives = odor_to_drives(odor_smooth) * 3 if odor_mode_enabled else np.ones(2) 
 
 
@@ -223,15 +229,16 @@ def main():
         if sim.render_as_needed():
             frame = np.concatenate([frames[-1] for frames in sim.renderer.frames.values()], axis=-2)
 
-            if args.render_fly_vision:
-                fly_vision = render_ommatidia(sim)
-                diff = frame.shape[1] - fly_vision.shape[1]
+            if not no_omma_capture and args.render_fly_vision:
+                fly_vision, ommatidia_fly_version = render_ommatidia(sim) # ommatidia_fly_version : np.array, (2, 721, 2) , float32
+                all_frames_ommatidias.append(ommatidia_fly_version)
+
                 fly_vision = np.pad(
                     fly_vision,
                     (
-                        (0, 0),               
-                        (diff // 2, diff - diff // 2), 
-                        (0, 0),               
+                        [0] * 2,
+                        [(frame.shape[1] - fly_vision.shape[1]) // 2] * 2,
+                        [0] * 2,
                     ),
                 ) 
                 frame_tot = np.vstack((fly_vision, frame))
