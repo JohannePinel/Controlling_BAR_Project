@@ -212,6 +212,9 @@ class MiniprojectSimulation(Simulation):
         for _ in range(2000):
             self.step()
 
+    #################################################################################
+    ########################### DRAGONFLY ###########################################
+    #################################################################################
     def _init_dragonfly_controller(self):
         self._fly_name = self.fly.name
         fly_body_segments = self.fly.get_bodysegs_order()
@@ -330,7 +333,23 @@ class MiniprojectSimulation(Simulation):
                     self.world.set_dragonfly_rgba(self, (1, 0, 0, 1), segment="head")
 
                 self.world.set_dragonfly_pose(self, new_pos, (yaw, pitch, 0.0))
+    
+    ###############################################################################
+    ########################### BANANA ###########################################
+    ###############################################################################
+    def _change_pose_banana(self):
+        banana_mocap_id = self.world._get_banana_mocap_id(self)
+        z = self.mj_data.mocap_pos[banana_mocap_id, 2]
 
+        # 10, 40 c genre le rayon ; -pi, pi c l'angle ; self.rng pr random et pas juste rng (sinon tjr le mm)
+        banana_offset_xy = sample_polar((10, 40), (-np.pi, np.pi), self.rng)
+
+        next_pos = np.array([banana_offset_xy[0], banana_offset_xy[1], z])
+        self.world.set_banana_pose(self, next_pos)
+
+    ##############################################################################
+    ########################### WIND ###########################################
+    ##############################################################################
     def set_wind(self, magnitude, angle_deg):
         angle = np.deg2rad(angle_deg)
         wind = np.array([magnitude * np.cos(angle), magnitude * np.sin(angle), 0])
@@ -338,10 +357,14 @@ class MiniprojectSimulation(Simulation):
         self.world.flow_velocity[:2] = wind[:2]
 
     def step(self):
+        if self._curr_step % 3000 == 0 and self._curr_step >= 2000:
+            self._change_pose_banana()
+
         if self.enable_wind :
-            if self._curr_step % 1000 == 0 and self._curr_step >= 2000:
+            if self._curr_step % 1000 == 1 and self._curr_step >= 2000:
                 angle_deg = self.rng.uniform(0, 360)
                 self.set_wind(magnitude=50000, angle_deg=angle_deg)
+
         if self.enable_dragonfly:
             self._step_dragonfly()
         super().step()
