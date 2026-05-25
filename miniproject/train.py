@@ -2,12 +2,12 @@ import torch
 import torch.nn as nn
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
-import pathlib as Path
+from pathlib import Path
 import os
 import glob
+import argparse
 
-project_root = Path(__file__).resolve().parent.parent
-npz_path = project_root / "miniproject" / "training_datas" 
+
         
 class OmmatidiaDataset(Dataset):
     def __init__(self, folder_path):
@@ -21,6 +21,9 @@ class OmmatidiaDataset(Dataset):
             all_gains.append(data["gains"])
             all_modes.append(data["modes"])
             print(f"Chargé : {npz_path} ({len(data['inputs'])} samples)")
+
+        if not all_inputs:
+            raise FileNotFoundError(f"No .npz files found in folder: {folder_path}")
 
         self.inputs = torch.tensor(np.concatenate(all_inputs), dtype=torch.float32)
         self.gains  = torch.tensor(np.concatenate(all_gains),  dtype=torch.float32)
@@ -62,8 +65,8 @@ class ObstacleNet(nn.Module):
 
 # ── Entraînement ───────────────────────────────────────────────────────────────
 
-def train(npz_path, epochs=20, batch_size=32, lr=1e-3):
-    dataset    = OmmatidiaDataset(npz_path)
+def train(folder_path, epochs=20, batch_size=32, lr=1e-3):
+    dataset    = OmmatidiaDataset(folder_path)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     model     = ObstacleNet()
@@ -109,6 +112,15 @@ def train(npz_path, epochs=20, batch_size=32, lr=1e-3):
 
 
 if __name__ == "__main__":
-    model = train("test_mini_1779656227.npz")
+    parser = argparse.ArgumentParser(description="Train ObstacleNet on collected .npz datasets.")
+    parser.add_argument(
+        "--folder", 
+        type=str, 
+        default="miniproject/training_datas",
+        help="Path to the folder containing .npz files (default: miniproject/training_datas)"
+    )
+    args = parser.parse_args()
+
+    model = train(args.folder)
     torch.save(model.state_dict(), "obstacle_net.pth")
     print("Modèle sauvegardé : obstacle_net.pth")
