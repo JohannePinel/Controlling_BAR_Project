@@ -1,13 +1,29 @@
 import torch
 import torch.nn as nn
+import torchvision
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from pathlib import Path
-import os
+import os, subprocess
 import glob
 import argparse
 
-
+def get_device():
+    result = subprocess.run(
+        ["nvidia-smi", "--query-gpu=index", "--format=csv,noheader"],
+        capture_output=True, text=True
+    )
+    nvidia_index = result.stdout.strip().split("\n")[0]
+    os.environ["CUDA_VISIBLE_DEVICES"] = nvidia_index
+    print(f"Forcing NVIDIA GPU (index {nvidia_index})")
+    print(torch.__version__)
+    print("CUDA dispo :", torch.cuda.is_available())
+    print("GPU :", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "aucun")
+    print("VRAM :", round(torch.cuda.get_device_properties(0).total_memory / 1e9, 1), "Go")
+    print(f"PyTorch {torch.__version__} | torchvision {torchvision.__version__}")
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+    return device
         
 class OmmatidiaDataset(Dataset):
     def __init__(self, folder_path):
@@ -66,22 +82,26 @@ class ObstacleNet(nn.Module):
 # ── Entraînement ───────────────────────────────────────────────────────────────
 
 def train(folder_path, epochs=20, batch_size=32, lr=1e-3):
+    device = get_device()  
+    
     dataset    = OmmatidiaDataset(folder_path)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-    model     = ObstacleNet()
+    model     = ObstacleNet().to(device) 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     bce_loss  = nn.BCELoss()
     mse_loss  = nn.MSELoss()
-
+    
     for epoch in range(epochs):
         total_loss        = 0
         total_danger_loss = 0
         total_gains_loss  = 0
 
         for inputs, gains, danger in dataloader:
+            inputs = inputs.to(device)  
+            gains  = gains.to(device)   
+            danger = danger.to(device)  
             optimizer.zero_grad()
-
             pred_danger, pred_gains = model(inputs)
 
             # Tâche 1 — classifier danger (tous les samples)
@@ -92,7 +112,7 @@ def train(folder_path, epochs=20, batch_size=32, lr=1e-3):
             if manual_mask.any():
                 loss_gains = mse_loss(pred_gains[manual_mask], gains[manual_mask])
             else:
-                loss_gains = torch.tensor(0.0)
+                loss_gains = torch.tensor(0.0, device=device)
 
             loss = loss_danger + loss_gains
             loss.backward()
@@ -104,14 +124,15 @@ def train(folder_path, epochs=20, batch_size=32, lr=1e-3):
 
         n = len(dataloader)
         print(f"Epoch {epoch+1:02d} | "
-              f"loss={total_loss/n:.4f} | "
-              f"danger={total_danger_loss/n:.4f} | "
-              f"gains={total_gains_loss/n:.4f}")
+              f"total_loss={total_loss/n:.4f} | "
+              f"total_danger_loss={total_danger_loss/n:.4f} | "
+              f"total_gains_loss={total_gains_loss/n:.4f}")
 
     return model
 
 
 if __name__ == "__main__":
+
     parser = argparse.ArgumentParser(description="Train ObstacleNet on collected .npz datasets.")
     parser.add_argument(
         "--folder", 
