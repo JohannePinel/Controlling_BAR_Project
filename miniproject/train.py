@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-import torchvision
 import numpy as np
+from model import ObstacleNet
 from torch.utils.data import Dataset, DataLoader
 from pathlib import Path
 import os, subprocess
@@ -20,7 +20,6 @@ def get_device():
     print("CUDA dispo :", torch.cuda.is_available())
     print("GPU :", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "aucun")
     print("VRAM :", round(torch.cuda.get_device_properties(0).total_memory / 1e9, 1), "Go")
-    print(f"PyTorch {torch.__version__} | torchvision {torchvision.__version__}")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     return device
@@ -56,27 +55,7 @@ class OmmatidiaDataset(Dataset):
         return self.inputs[idx], self.gains[idx], self.danger[idx]
 
 
-# ── Modèle ─────────────────────────────────────────────────────────────────────
 
-class ObstacleNet(nn.Module):
-    def __init__(self):
-        super().__init__()
-        input_dim = 5 * 2 * 721 * 2  # 14420
-
-        self.backbone = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(input_dim, 256), nn.ReLU(),
-            nn.Linear(256, 64),        nn.ReLU(),
-            nn.Linear(64, 32),         nn.ReLU(),
-        )
-        self.danger_head = nn.Sequential(nn.Linear(32, 1), nn.Sigmoid())
-        self.gains_head  = nn.Linear(32, 2)
-
-    def forward(self, x):
-        features = self.backbone(x)
-        danger   = self.danger_head(features).squeeze(-1)  # (B,)
-        gains    = self.gains_head(features)               # (B, 2)
-        return danger, gains
 
 
 # ── Entraînement ───────────────────────────────────────────────────────────────
