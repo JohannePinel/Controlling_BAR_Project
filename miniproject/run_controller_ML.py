@@ -4,7 +4,7 @@ import importlib
 import miniproject.simulation
 importlib.reload(miniproject.simulation)
 from miniproject.simulation import MiniprojectSimulation
-from submission.controller_ML import Controller
+from controller_ML import Controller
 import mediapy
 
 sim = MiniprojectSimulation(hills=False, grass=True, wind=False, dragonfly=False)

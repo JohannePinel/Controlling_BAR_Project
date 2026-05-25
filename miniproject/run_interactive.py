@@ -21,7 +21,7 @@ ALPHA = 0.1
 ODOR_DETECTION_THRESHOLD = 1e-8
 
 # Vision parameters
-VISION_RATE = 100
+VISION_RATE = 30
 
 # Dataset parameters
 WINDOW = 5
@@ -262,7 +262,7 @@ def main():
         folder = project_root / "miniproject" / "training_datas" 
         timestamp = int(time.time())
         np.savez_compressed(
-            folder / f"test_mini_{timestamp}.npz",
+            folder / f"flat_grass_seed{args.seed}_{timestamp}.npz",
             inputs=inputs,
             gains=gains,
             modes=modes,

@@ -49,6 +49,7 @@ class KeyboardControl:
         self.key_odor_mode = pygame.K_SPACE
         self.key_change_banana_pos = pygame.K_c
         self.key_forbid_capturing_ommatidia = pygame.K_n
+        self.key_reverse = pygame.K_r
 
         self.prev_gain_left = 0.0
         self.prev_gain_right = 0.0
@@ -61,6 +62,9 @@ class KeyboardControl:
 
         self.banana_pos_just_changed = False
         self.change_banana_pos = False
+
+        self.some_frames_just_reversed = False
+        self.reverse_some_frames = False
         
 
     def process_events(self, events):
@@ -77,8 +81,8 @@ class KeyboardControl:
                     self.toggle_acceleration = True
                 if event.key == pygame.K_ESCAPE:
                     self.game_state.set_quit(True)
-                elif event.key == pygame.K_r and not self.game_state.get_reset():
-                    self.game_state.set_reset(True)
+                if event.key == pygame.K_r:
+                    self.reverse_some_frames = True
                 
 
     def any_key_pressed(self):
@@ -103,6 +107,7 @@ class KeyboardControl:
         new_odor_mode = self.prev_odor_mode
         new_acceleration = self.prev_acceleration
         order_changing_banana_pos = self.banana_pos_just_changed
+        order_reversing_frames = self.some_frames_just_reversed
         no_omma_capture = False
 
         command_applied = False
@@ -163,6 +168,10 @@ class KeyboardControl:
             order_changing_banana_pos = not self.banana_pos_just_changed # 1st we toggle
             self.change_banana_pos = False # Can't re-toggle before key is released
 
+        if self.reverse_some_frames:
+            order_reversing_frames = not self.some_frames_just_reversed # 1st we toggle
+            self.reverse_some_frames = False # Can't re-toggle before key is released
+
         new_odor_mode = not command_applied
         if new_odor_mode == True: 
             gain_right = 1.0
@@ -176,10 +185,16 @@ class KeyboardControl:
             print(f"in controls.py, gain_left*acc: {gain_left*new_acceleration} -- gain_right*acc: {gain_right*new_acceleration}")
         self.prev_acceleration = new_acceleration
 
-
         self.prev_gain_left = gain_left*new_acceleration
         self.prev_gain_right = gain_right*new_acceleration
-        return gain_left*new_acceleration, gain_right*new_acceleration, new_odor_mode, order_changing_banana_pos, no_omma_capture
+        return (
+            gain_left*new_acceleration, 
+            gain_right*new_acceleration, 
+            new_odor_mode, 
+            order_changing_banana_pos, 
+            no_omma_capture,
+            order_reversing_frames
+        ) 
 
     def flush_keys(self):
         return

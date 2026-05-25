@@ -127,7 +127,7 @@ class MiniprojectWorld(
 class MiniprojectSimulation(Simulation):
     def __init__(
         self,
-        level,
+        level=1,
         seed=0,
         back_cam=True,
         top_cam=True,
@@ -365,7 +365,7 @@ class MiniprojectSimulation(Simulation):
     def step(self, change_pos_banana=False):
         dist = self.get_distance_to_banana()
         # print(f"dist to banana : {dist}") 
-        if (dist <= 5.0 or change_pos_banana) and self._curr_step >= 2000:
+        if (dist <= 10.0 or change_pos_banana) and self._curr_step >= 2000:
             self._change_pose_banana()
 
         if self.enable_wind :

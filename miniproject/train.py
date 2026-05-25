@@ -122,5 +122,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     model = train(args.folder)
-    torch.save(model.state_dict(), "obstacle_net.pth")
-    print("Modèle sauvegardé : obstacle_net.pth")
+    save_path = Path(__file__).parent / "obstacle_net.pth"
+    torch.save(model.state_dict(), save_path)
+    print(f"Modèle sauvegardé : {save_path}")
